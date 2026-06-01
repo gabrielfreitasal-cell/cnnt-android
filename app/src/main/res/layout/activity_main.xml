@@ -1,0 +1,567 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.drawerlayout.widget.DrawerLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/drawerLayout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fitsSystemWindows="false">
+
+    <!-- Main content -->
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#141414">
+
+        <TextView
+            android:id="@+id/debugOverlay"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_margin="10dp"
+            android:background="#B3000000"
+            android:padding="8dp"
+            android:textColor="#88FF88"
+            android:textSize="10sp"
+            android:fontFamily="monospace"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <!-- Infinite Canvas -->
+        <com.cnnt.app.canvas.InfiniteCanvasView
+            android:id="@+id/canvasView"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <!-- Top Header Bar (Glass) -->
+        <LinearLayout
+            android:id="@+id/topHeaderBar"
+            android:layout_width="0dp"
+            android:layout_height="52dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="12dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/bg_glass_toolbar"
+            android:elevation="4dp"
+            android:paddingStart="12dp"
+            android:paddingEnd="8dp"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
+
+            <!-- Menu / sidebar toggle -->
+            <ImageButton
+                android:id="@+id/sidebarToggle"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@drawable/ic_brush"
+                android:background="@android:color/transparent"
+                android:scaleType="centerInside"
+                android:padding="4dp"
+                android:contentDescription="Menu"
+                android:layout_marginEnd="8dp"
+                app:tint="#88CCFF" />
+
+            <!-- Note title -->
+            <TextView
+                android:id="@+id/noteTitle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="CanNote Workspace"
+                android:textSize="14sp"
+                android:textColor="#DDDDDD"
+                android:textStyle="bold"
+                android:singleLine="true"
+                android:ellipsize="end" />
+
+            <!-- Undo -->
+            <ImageButton
+                android:id="@+id/btnUndo"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@drawable/ic_undo"
+                android:background="@android:color/transparent"
+                android:scaleType="centerInside"
+                android:padding="6dp"
+                android:contentDescription="Desfazer"
+                app:tint="#AAAAAA" />
+
+            <!-- Redo -->
+            <ImageButton
+                android:id="@+id/btnRedo"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@drawable/ic_redo"
+                android:background="@android:color/transparent"
+                android:scaleType="centerInside"
+                android:padding="6dp"
+                android:contentDescription="Refazer"
+                app:tint="#AAAAAA" />
+
+            <!-- Search / OCR -->
+            <ImageButton
+                android:id="@+id/btnOcr"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@drawable/ic_ocr"
+                android:background="@android:color/transparent"
+                android:scaleType="centerInside"
+                android:padding="6dp"
+                android:contentDescription="OCR"
+                app:tint="#AAAAAA" />
+
+            <!-- Export/Share -->
+            <ImageButton
+                android:id="@+id/btnExport"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@drawable/ic_export"
+                android:background="@android:color/transparent"
+                android:scaleType="centerInside"
+                android:padding="6dp"
+                android:contentDescription="Exportar"
+                app:tint="#AAAAAA" />
+
+        </LinearLayout>
+
+        <!-- Tool Toolbar (Glass floating bar - horizontal at bottom or top-second-row) -->
+        <HorizontalScrollView
+            android:id="@+id/toolbarScroll"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_marginTop="6dp"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="12dp"
+            android:scrollbars="none"
+            android:background="@drawable/bg_glass_toolbar"
+            android:elevation="4dp"
+            android:fillViewport="false"
+            app:layout_constraintTop_toBottomOf="@id/topHeaderBar"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
+
+            <LinearLayout
+                android:id="@+id/toolbarContainer"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp">
+
+                <!-- Brush button (icon + name) -->
+                <Button
+                    android:id="@+id/btnBrush"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:minWidth="72dp"
+                    android:text="Caneta Gel"
+                    android:textSize="11sp"
+                    android:textColor="#FFFFFF"
+                    android:background="@drawable/btn_tool"
+                    android:drawableStart="@drawable/ic_brush"
+                    android:drawablePadding="4dp"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="10dp"
+                    android:layout_marginEnd="4dp" />
+
+                <!-- Color button -->
+                <Button
+                    android:id="@+id/btnColor"
+                    android:layout_width="30dp"
+                    android:layout_height="30dp"
+                    android:background="@drawable/color_indicator"
+                    android:layout_marginEnd="4dp" />
+
+                <!-- Size slider -->
+                <SeekBar
+                    android:id="@+id/sizeSlider"
+                    android:layout_width="120dp"
+                    android:layout_height="36dp"
+                    android:max="100"
+                    android:progress="30"
+                    android:progressTint="#AAAAAA"
+                    android:thumbTint="#4488FF"
+                    android:layout_marginEnd="4dp" />
+
+                <!-- Eraser -->
+                <ImageButton
+                    android:id="@+id/btnEraser"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:src="@drawable/ic_eraser"
+                    android:background="@drawable/btn_tool"
+                    android:scaleType="centerInside"
+                    android:padding="7dp"
+                    android:contentDescription="Borracha"
+                    android:layout_marginEnd="4dp" />
+
+                <!-- Select -->
+                <ImageButton
+                    android:id="@+id/btnSelect"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:src="@drawable/ic_select"
+                    android:background="@drawable/btn_tool"
+                    android:scaleType="centerInside"
+                    android:padding="8dp"
+                    android:contentDescription="Selecionar"
+                    android:layout_marginEnd="4dp" />
+
+                <!-- Lasso -->
+                <ImageButton
+                    android:id="@+id/btnLasso"
+                    android:layout_width="48dp"
+                    android:layout_height="44dp"
+                    android:src="@drawable/ic_lasso"
+                    android:background="@drawable/btn_tool"
+                    android:scaleType="fitCenter"
+                    android:padding="6dp"
+                    android:contentDescription="Laco"
+                    android:layout_marginEnd="4dp" />
+
+                <!-- Flashcard -->
+                <ImageButton
+                    android:id="@+id/btnFlashcard"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:src="@drawable/ic_flashcard"
+                    android:background="@drawable/btn_tool"
+                    android:scaleType="centerInside"
+                    android:padding="7dp"
+                    android:contentDescription="Flashcard"
+                    android:layout_marginEnd="4dp" />
+
+                <!-- Focus mode -->
+                <ImageButton
+                    android:id="@+id/btnFocus"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:src="@drawable/ic_focus"
+                    android:background="@drawable/btn_tool"
+                    android:scaleType="centerInside"
+                    android:padding="7dp"
+                    android:contentDescription="Modo Foco"
+                    android:layout_marginEnd="4dp" />
+
+                <!-- Brush Settings -->
+                <ImageButton
+                    android:id="@+id/btnBrushSettings"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:src="@drawable/ic_settings"
+                    android:background="@drawable/btn_tool"
+                    android:scaleType="centerInside"
+                    android:padding="7dp"
+                    android:contentDescription="Configurar Pincel"
+                    android:layout_marginEnd="4dp" />
+
+            </LinearLayout>
+        </HorizontalScrollView>
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+    <!-- Sidebar (Left Drawer) - Glass design -->
+    <ScrollView
+        android:layout_width="300dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="start"
+        android:background="@drawable/bg_glass_sidebar"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <!-- App header -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="24dp">
+
+                <ImageView
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:src="@drawable/ic_brush"
+                    android:layout_marginEnd="10dp"
+                    app:tint="#88CCFF" />
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="CanNote"
+                        android:textSize="18sp"
+                        android:textColor="#FFFFFF"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Workspace"
+                        android:textSize="12sp"
+                        android:textColor="#88CCFF" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- Navigation items -->
+            <TextView
+                android:id="@+id/navHome"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:gravity="center_vertical"
+                android:paddingStart="14dp"
+                android:text="Home"
+                android:textSize="14sp"
+                android:textColor="#FFFFFF"
+                android:drawableStart="@drawable/ic_focus"
+                android:drawablePadding="12dp"
+                android:background="@drawable/bg_sidebar_item"
+                android:layout_marginBottom="2dp" />
+
+            <TextView
+                android:id="@+id/navRecent"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:gravity="center_vertical"
+                android:paddingStart="14dp"
+                android:text="Recently Edited"
+                android:textSize="14sp"
+                android:textColor="#BBBBBB"
+                android:drawableStart="@drawable/ic_redo"
+                android:drawablePadding="12dp"
+                android:background="@drawable/bg_sidebar_item"
+                android:layout_marginBottom="2dp" />
+
+            <TextView
+                android:id="@+id/navAllNotes"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:gravity="center_vertical"
+                android:paddingStart="14dp"
+                android:text="All Notes"
+                android:textSize="14sp"
+                android:textColor="#BBBBBB"
+                android:drawableStart="@drawable/ic_flashcard"
+                android:drawablePadding="12dp"
+                android:background="@drawable/bg_sidebar_item"
+                android:layout_marginBottom="2dp" />
+
+            <TextView
+                android:id="@+id/navFavorites"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:gravity="center_vertical"
+                android:paddingStart="14dp"
+                android:text="Favorites"
+                android:textSize="14sp"
+                android:textColor="#BBBBBB"
+                android:drawableStart="@drawable/ic_lasso"
+                android:drawablePadding="12dp"
+                android:background="@drawable/bg_sidebar_item"
+                android:layout_marginBottom="12dp" />
+
+            <!-- Folders section -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Folders"
+                android:textSize="12sp"
+                android:textColor="#666666"
+                android:textStyle="bold"
+                android:layout_marginStart="14dp"
+                android:layout_marginBottom="6dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:gravity="center_vertical"
+                android:paddingStart="28dp"
+                android:text="Projects"
+                android:textSize="13sp"
+                android:textColor="#AAAAAA"
+                android:background="@drawable/bg_sidebar_item"
+                android:layout_marginBottom="2dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:gravity="center_vertical"
+                android:paddingStart="28dp"
+                android:text="Brainstorms"
+                android:textSize="13sp"
+                android:textColor="#AAAAAA"
+                android:background="@drawable/bg_sidebar_item"
+                android:layout_marginBottom="12dp" />
+
+            <!-- Tags -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:gravity="center_vertical"
+                android:paddingStart="14dp"
+                android:text="Tags"
+                android:textSize="14sp"
+                android:textColor="#BBBBBB"
+                android:drawableStart="@drawable/ic_select"
+                android:drawablePadding="12dp"
+                android:background="@drawable/bg_sidebar_item"
+                android:layout_marginBottom="20dp" />
+
+            <!-- Divider -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#22FFFFFF"
+                android:layout_marginBottom="16dp" />
+
+            <!-- Pages section -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Pages"
+                android:textSize="12sp"
+                android:textColor="#666666"
+                android:textStyle="bold"
+                android:layout_marginStart="14dp"
+                android:layout_marginBottom="8dp" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/pageList"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:nestedScrollingEnabled="false"
+                android:minHeight="80dp"
+                android:layout_marginBottom="8dp" />
+
+            <Button
+                android:id="@+id/btnAddPage"
+                android:layout_width="match_parent"
+                android:layout_height="36dp"
+                android:text="+ Add Page"
+                android:textColor="#88CCFF"
+                android:textSize="12sp"
+                android:background="@drawable/btn_tool"
+                android:layout_marginBottom="20dp" />
+
+            <!-- Divider -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="#22FFFFFF"
+                android:layout_marginBottom="16dp" />
+
+            <!-- Insert blocks section -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Insert Block"
+                android:textSize="12sp"
+                android:textColor="#666666"
+                android:textStyle="bold"
+                android:layout_marginStart="14dp"
+                android:layout_marginBottom="8dp" />
+
+            <Button
+                android:id="@+id/btnInsertText"
+                android:layout_width="match_parent"
+                android:layout_height="38dp"
+                android:text="   Text"
+                android:textSize="13sp"
+                android:textColor="#CCCCCC"
+                android:background="@drawable/bg_sidebar_item"
+                android:layout_marginBottom="3dp"
+                android:gravity="start|center_vertical"
+                android:paddingStart="14dp"
+                android:drawableStart="@drawable/ic_ocr"
+                android:drawablePadding="10dp" />
+
+            <Button
+                android:id="@+id/btnInsertChecklist"
+                android:layout_width="match_parent"
+                android:layout_height="38dp"
+                android:text="   Checklist"
+                android:textSize="13sp"
+                android:textColor="#CCCCCC"
+                android:background="@drawable/bg_sidebar_item"
+                android:layout_marginBottom="3dp"
+                android:gravity="start|center_vertical"
+                android:paddingStart="14dp"
+                android:drawableStart="@drawable/ic_select"
+                android:drawablePadding="10dp" />
+
+            <Button
+                android:id="@+id/btnInsertImage"
+                android:layout_width="match_parent"
+                android:layout_height="38dp"
+                android:text="   Image"
+                android:textSize="13sp"
+                android:textColor="#CCCCCC"
+                android:background="@drawable/bg_sidebar_item"
+                android:layout_marginBottom="3dp"
+                android:gravity="start|center_vertical"
+                android:paddingStart="14dp"
+                android:drawableStart="@drawable/ic_export"
+                android:drawablePadding="10dp" />
+
+            <Button
+                android:id="@+id/btnInsertPdf"
+                android:layout_width="match_parent"
+                android:layout_height="38dp"
+                android:text="   PDF"
+                android:textSize="13sp"
+                android:textColor="#CCCCCC"
+                android:background="@drawable/bg_sidebar_item"
+                android:layout_marginBottom="3dp"
+                android:gravity="start|center_vertical"
+                android:paddingStart="14dp"
+                android:drawableStart="@drawable/ic_flashcard"
+                android:drawablePadding="10dp" />
+
+            <Button
+                android:id="@+id/btnInsertLink"
+                android:layout_width="match_parent"
+                android:layout_height="38dp"
+                android:text="   Link"
+                android:textSize="13sp"
+                android:textColor="#CCCCCC"
+                android:background="@drawable/bg_sidebar_item"
+                android:layout_marginBottom="3dp"
+                android:gravity="start|center_vertical"
+                android:paddingStart="14dp"
+                android:drawableStart="@drawable/ic_lasso"
+                android:drawablePadding="10dp" />
+
+            <Button
+                android:id="@+id/btnInsertHandwriting"
+                android:layout_width="match_parent"
+                android:layout_height="38dp"
+                android:text="   Handwriting Block"
+                android:textSize="13sp"
+                android:textColor="#CCCCCC"
+                android:background="@drawable/bg_sidebar_item"
+                android:layout_marginBottom="3dp"
+                android:gravity="start|center_vertical"
+                android:paddingStart="14dp"
+                android:drawableStart="@drawable/ic_brush"
+                android:drawablePadding="10dp" />
+
+        </LinearLayout>
+    </ScrollView>
+
+</androidx.drawerlayout.widget.DrawerLayout>

@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_glass_panel"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Exportar"
+        android:textSize="18sp"
+        android:textColor="#FFFFFF"
+        android:textStyle="bold"
+        android:layout_marginBottom="16dp" />
+
+    <Button
+        android:id="@+id/btnExportJson"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:text="JSON (Backup estruturado)"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:background="@drawable/btn_tool"
+        android:layout_marginBottom="8dp" />
+
+    <Button
+        android:id="@+id/btnExportMarkdown"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:text="Markdown"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:background="@drawable/btn_tool"
+        android:layout_marginBottom="8dp" />
+
+    <Button
+        android:id="@+id/btnExportObsidian"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:text="Obsidian Canvas"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:background="@drawable/btn_tool"
+        android:layout_marginBottom="8dp" />
+
+    <Button
+        android:id="@+id/btnExportPng"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:text="PNG (Página atual)"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:background="@drawable/btn_tool"
+        android:layout_marginBottom="8dp" />
+
+    <Button
+        android:id="@+id/btnExportPdf"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:text="PDF (Todas páginas)"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:background="@drawable/btn_tool"
+        android:layout_marginBottom="8dp" />
+
+    <Button
+        android:id="@+id/btnExportBackup"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:text="Backup CNNT (ZIP completo)"
+        android:textColor="#FFFFFF"
+        android:textSize="13sp"
+        android:background="@drawable/btn_tool" />
+
+</LinearLayout>

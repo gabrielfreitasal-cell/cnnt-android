@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:padding="10dp"
+    android:background="@drawable/bg_brush_card"
+    android:layout_margin="4dp"
+    android:gravity="center_vertical">
+
+    <!-- Brush icon -->
+    <ImageView
+        android:id="@+id/brushIcon"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:src="@drawable/ic_brush"
+        android:layout_marginEnd="10dp" />
+
+    <!-- Name + category stacked -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/brushName"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="13sp"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold"
+            android:singleLine="true"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/brushCategory"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="10sp"
+            android:textColor="#777777" />
+    </LinearLayout>
+
+    <!-- Stroke preview (wave) -->
+    <View
+        android:id="@+id/brushPreview"
+        android:layout_width="100dp"
+        android:layout_height="36dp" />
+
+</LinearLayout>

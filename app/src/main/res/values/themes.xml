@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.CNNT" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">#4488FF</item>
+        <item name="colorPrimaryVariant">#3366CC</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorSecondary">#88CCFF</item>
+        <item name="colorSecondaryVariant">#6699CC</item>
+        <item name="colorOnSecondary">#FFFFFF</item>
+        <item name="android:statusBarColor">#141414</item>
+        <item name="android:navigationBarColor">#141414</item>
+        <item name="android:windowBackground">#141414</item>
+        <item name="android:windowFullscreen">true</item>
+    </style>
+
+    <style name="Theme.CNNT.Dialog" parent="Theme.MaterialComponents.DayNight.Dialog">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimAmount">0.7</item>
+    </style>
+</resources>
