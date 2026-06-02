@@ -5,6 +5,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Rect
 import android.os.Bundle
 import android.widget.Button
 import android.widget.TextView
@@ -19,10 +20,15 @@ import kotlinx.coroutines.withContext
 class OcrDialog(
     context: Context,
     private val viewModel: MainViewModel,
-    private val bitmapProvider: () -> Bitmap?
+    private val bitmapProvider: () -> Bitmap?,
+    private val requestRegionSelection: () -> Unit,
+    private val regionBitmapProvider: (Rect) -> Bitmap?,
+    private val consumeSelectedRegion: () -> Rect?
 ) : Dialog(context, R.style.Theme_CNNT_Dialog) {
 
     private var recognizedText = ""
+    private enum class OcrMode { REGION, SCREEN }
+    private var selectedMode = OcrMode.REGION
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -30,12 +36,19 @@ class OcrDialog(
 
         val textView = findViewById<TextView>(R.id.ocrResultText)
         val btnRecognize = findViewById<Button>(R.id.btnRecognize)
+        val btnRecognizeVisible = findViewById<Button>(R.id.btnRecognizeVisible)
         val btnCopy = findViewById<Button>(R.id.btnCopy)
         val btnCreateFlashcard = findViewById<Button>(R.id.btnCreateFlashcard)
 
         btnRecognize?.setOnClickListener {
-            // OCR from current visible canvas area
-            textView?.text = "Reconhecendo..."
+            selectedMode = OcrMode.REGION
+            textView?.text = "Desenhe a região no canvas e toque novamente em OCR por região."
+            requestRegionSelection()
+        }
+
+        btnRecognizeVisible?.setOnClickListener {
+            selectedMode = OcrMode.SCREEN
+            textView?.text = "Reconhecendo tela visível..."
             performOcr(textView)
         }
 
@@ -58,7 +71,17 @@ class OcrDialog(
 
     private fun performOcr(textView: TextView?) {
         CoroutineScope(Dispatchers.Main).launch {
-            val bitmap = bitmapProvider()
+            val bitmap = when (selectedMode) {
+                OcrMode.SCREEN -> bitmapProvider()
+                OcrMode.REGION -> {
+                    val region = consumeSelectedRegion()
+                    if (region == null) {
+                        textView?.text = "Selecione uma região no canvas primeiro."
+                        return@launch
+                    }
+                    regionBitmapProvider(region)
+                }
+            }
             if (bitmap == null) {
                 textView?.text = "Abra uma página e tente novamente."
                 recognizedText = ""

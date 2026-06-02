@@ -20,7 +20,16 @@
         android:id="@+id/btnRecognize"
         android:layout_width="match_parent"
         android:layout_height="40dp"
-        android:text="Reconhecer Região"
+        android:text="OCR por região"
+        android:textColor="#FFFFFF"
+        android:background="@drawable/btn_tool"
+        android:layout_marginBottom="8dp" />
+
+    <Button
+        android:id="@+id/btnRecognizeVisible"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:text="OCR da tela visível"
         android:textColor="#FFFFFF"
         android:background="@drawable/btn_tool"
         android:layout_marginBottom="12dp" />
