@@ -1,5 +1,7 @@
 package com.cnnt.app.ui
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.os.Build
 import android.os.Bundle
 import android.view.View
@@ -53,6 +55,7 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
         setupToolbar()
         setupSidebar()
         setupObservers()
+        setupQuickActions()
         setupDebugOverlay()
 
         // Load or create default notebook
@@ -165,6 +168,7 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
             viewModel.currentBoard.collect { board ->
                 board?.let {
                     binding.canvasView.setBoard(it)
+                    updateHeaderStatus()
                 }
             }
         }
@@ -185,6 +189,7 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
             viewModel.currentNotebook.collect { notebook ->
                 notebook?.let {
                     sidebarManager.updatePages(it.boards, viewModel.activeBoardIndex())
+                    updateHeaderStatus()
                 }
             }
         }
@@ -193,6 +198,7 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
             viewModel.currentBoard.collect {
                 val notebook = viewModel.currentNotebook.value ?: return@collect
                 sidebarManager.updatePages(notebook.boards, viewModel.activeBoardIndex())
+                updateHeaderStatus()
             }
         }
     }
@@ -205,6 +211,20 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
         } else {
             binding.toolbarScroll.visibility = View.VISIBLE
             binding.topHeaderBar.visibility = View.VISIBLE
+        }
+    }
+
+    private fun setupQuickActions() {
+        binding.noteTitle.setOnLongClickListener {
+            binding.canvasView.zoomToFit()
+            Toast.makeText(this, "Canvas ajustado à tela", Toast.LENGTH_SHORT).show()
+            true
+        }
+
+        binding.sidebarToggle.setOnLongClickListener {
+            binding.canvasView.resetView()
+            Toast.makeText(this, "Zoom redefinido", Toast.LENGTH_SHORT).show()
+            true
         }
     }
 
@@ -305,7 +325,7 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
     }
 
     private fun showOcrDialog() {
-        OcrDialog(this, viewModel).show()
+        OcrDialog(this, viewModel) { captureCanvasBitmap() }.show()
     }
 
     private fun showFlashcardDialog() {
@@ -332,7 +352,32 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
     }
 
     override fun onCanvasTransformChanged(scale: Float, translateX: Float, translateY: Float) {
-        // Update minimap if enabled
+        updateHeaderStatus()
+    }
+
+    private fun captureCanvasBitmap(): Bitmap? {
+        if (binding.canvasView.width <= 0 || binding.canvasView.height <= 0) return null
+        val bitmap = Bitmap.createBitmap(
+            binding.canvasView.width,
+            binding.canvasView.height,
+            Bitmap.Config.ARGB_8888
+        )
+        val canvas = Canvas(bitmap)
+        binding.canvasView.draw(canvas)
+        return bitmap
+    }
+
+    private fun updateHeaderStatus() {
+        val notebook = viewModel.currentNotebook.value
+        val page = viewModel.currentBoard.value
+        if (notebook == null || page == null) {
+            binding.noteTitle.text = getString(com.cnnt.app.R.string.app_name)
+            return
+        }
+        val pageIndex = viewModel.activeBoardIndex() + 1
+        val totalPages = notebook.boards.size
+        val zoom = binding.canvasView.getZoomPercent().toInt()
+        binding.noteTitle.text = "${notebook.name} • P$pageIndex/$totalPages • ${page.name} • ${zoom}%"
     }
 
     override fun onHandwritingStrokeInBlock(blockId: String, points: List<StrokePoint>) {

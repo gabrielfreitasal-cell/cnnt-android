@@ -4,6 +4,8 @@ import com.cnnt.app.data.dao.*
 import com.cnnt.app.data.model.*
 import com.google.gson.Gson
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import com.google.gson.reflect.TypeToken
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -214,8 +216,13 @@ class CnntRepository(private val database: CnntDatabase) {
 
     // --- Flashcards ---
 
-    fun getAllFlashcards(): Flow<List<FlashcardEntity>> = flashcardDao.getAllFlashcards()
-    fun getDueFlashcards(): Flow<List<FlashcardEntity>> = flashcardDao.getDueFlashcards()
+    fun getAllFlashcards(): Flow<List<Flashcard>> = flashcardDao.getAllFlashcards().map { list ->
+        list.map { entity -> entity.toModel() }
+    }
+
+    fun getDueFlashcards(): Flow<List<Flashcard>> = flashcardDao.getDueFlashcards().map { list ->
+        list.map { entity -> entity.toModel() }
+    }
 
     suspend fun saveFlashcard(flashcard: Flashcard) {
         flashcardDao.insert(FlashcardEntity(
@@ -230,6 +237,25 @@ class CnntRepository(private val database: CnntDatabase) {
             nextReview = flashcard.nextReview,
             createdAt = flashcard.createdAt
         ))
+    }
+
+    private fun FlashcardEntity.toModel(): Flashcard {
+        val tagsType = object : TypeToken<List<String>>() {}.type
+        val reviewHistoryType = object : TypeToken<MutableList<ReviewEntry>>() {}.type
+        return Flashcard(
+            id = id,
+            front = front,
+            back = back,
+            tags = runCatching { gson.fromJson<List<String>>(tags, tagsType) ?: emptyList() }.getOrDefault(emptyList()),
+            difficulty = runCatching { Difficulty.valueOf(difficulty) }.getOrDefault(Difficulty.MEDIUM),
+            linkedRegionId = linkedRegionId,
+            boardId = boardId,
+            reviewHistory = runCatching {
+                gson.fromJson<MutableList<ReviewEntry>>(reviewHistoryJson, reviewHistoryType) ?: mutableListOf()
+            }.getOrDefault(mutableListOf()),
+            nextReview = nextReview,
+            createdAt = createdAt
+        )
     }
 
     // --- Serialization helpers ---

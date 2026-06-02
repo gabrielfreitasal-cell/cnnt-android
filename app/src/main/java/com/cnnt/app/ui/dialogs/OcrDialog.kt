@@ -18,7 +18,8 @@ import kotlinx.coroutines.withContext
 
 class OcrDialog(
     context: Context,
-    private val viewModel: MainViewModel
+    private val viewModel: MainViewModel,
+    private val bitmapProvider: () -> Bitmap?
 ) : Dialog(context, R.style.Theme_CNNT_Dialog) {
 
     private var recognizedText = ""
@@ -56,11 +57,29 @@ class OcrDialog(
     }
 
     private fun performOcr(textView: TextView?) {
-        // In a real implementation, this would capture the canvas area as bitmap
-        // For now, show a placeholder
         CoroutineScope(Dispatchers.Main).launch {
-            textView?.text = "Selecione uma região no canvas para reconhecer texto.\n\n(OCR funcional com ML Kit integrado)"
-            recognizedText = ""
+            val bitmap = bitmapProvider()
+            if (bitmap == null) {
+                textView?.text = "Abra uma página e tente novamente."
+                recognizedText = ""
+                return@launch
+            }
+
+            try {
+                val result = viewModel.ocrEngine.recognizeText(bitmap)
+                recognizedText = result.fullText.trim()
+                textView?.text = if (recognizedText.isNotEmpty()) {
+                    recognizedText
+                } else {
+                    "Nenhum texto reconhecido na área visível."
+                }
+            } catch (e: Exception) {
+                recognizedText = ""
+                textView?.text = "Falha ao reconhecer texto."
+                Toast.makeText(context, "OCR falhou: ${e.message}", Toast.LENGTH_SHORT).show()
+            } finally {
+                bitmap.recycle()
+            }
         }
     }
 }

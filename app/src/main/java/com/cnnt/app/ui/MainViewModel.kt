@@ -34,6 +34,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 
 import kotlinx.coroutines.launch
 
@@ -186,9 +187,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             startAutoSave()
+            observeFlashcards()
 
         }
 
+    }
+
+    private fun observeFlashcards() {
+        viewModelScope.launch {
+            repository.getAllFlashcards().collectLatest { cards ->
+                _flashcards.value = cards
+            }
+        }
     }
 
 
@@ -387,10 +397,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             repository.saveFlashcard(flashcard)
 
-            _flashcards.value = _flashcards.value + flashcard
-
         }
 
+    }
+
+    fun buildWorkspaceSnapshot(): Workspace {
+        val notebook = _currentNotebook.value
+        return Workspace(
+            notebooks = notebook?.let { mutableListOf(it) } ?: mutableListOf(),
+            brushPresets = _brushes.value,
+            palettes = _palettes.value.toMutableList(),
+            settings = AppSettings(
+                defaultBrushId = _currentBrush.value.id,
+                defaultColor = _currentColor.value
+            )
+        )
     }
 
 

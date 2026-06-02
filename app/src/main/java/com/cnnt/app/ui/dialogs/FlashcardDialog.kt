@@ -55,6 +55,7 @@ class FlashcardDialog(
             showCard(cardText, cardCount)
         } else {
             cardText?.text = "Nenhum flashcard ainda.\nCrie um novo!"
+            cardCount?.text = "0 vencidos • 0 no total"
             reviewButtons?.visibility = View.GONE
         }
 
@@ -81,6 +82,9 @@ class FlashcardDialog(
                 val flashcard = viewModel.flashcardManager.createFlashcard(front, back, tags)
                 viewModel.addFlashcard(flashcard)
                 currentCards = viewModel.flashcards.value
+                currentIndex = currentCards.lastIndex.coerceAtLeast(0)
+                showingFront = true
+                showCard(cardText, cardCount)
                 Toast.makeText(context, "Flashcard salvo!", Toast.LENGTH_SHORT).show()
                 inputFront?.text?.clear()
                 inputBack?.text?.clear()
@@ -91,10 +95,15 @@ class FlashcardDialog(
     }
 
     private fun showCard(cardText: TextView?, cardCount: TextView?) {
-        if (currentCards.isEmpty()) return
+        if (currentCards.isEmpty()) {
+            cardText?.text = "Nenhum flashcard ainda.\nCrie um novo!"
+            cardCount?.text = "0 vencidos • 0 no total"
+            return
+        }
         val card = currentCards[currentIndex]
         cardText?.text = if (showingFront) card.front else card.back
-        cardCount?.text = "${currentIndex + 1} / ${currentCards.size}"
+        val dueCount = viewModel.flashcardManager.getDueCount(currentCards)
+        cardCount?.text = "${currentIndex + 1} / ${currentCards.size} • $dueCount vencidos"
     }
 
     private fun reviewAndNext(result: ReviewResult, cardText: TextView?, cardCount: TextView?, reviewButtons: View?) {
@@ -102,7 +111,7 @@ class FlashcardDialog(
         val card = currentCards[currentIndex]
         val updated = viewModel.flashcardManager.reviewFlashcard(card, result)
         viewModel.addFlashcard(updated)
-
+        currentCards = currentCards.toMutableList().apply { set(currentIndex, updated) }
         currentIndex = (currentIndex + 1) % currentCards.size
         showingFront = true
         showCard(cardText, cardCount)

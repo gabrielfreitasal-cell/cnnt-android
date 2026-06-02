@@ -109,9 +109,10 @@ class ExportDialog(
     }
 
     private fun exportBackup(dir: File) {
+        val workspace = viewModel.buildWorkspaceSnapshot()
         CoroutineScope(Dispatchers.IO).launch {
             val file = File(dir, "cnnt_backup_${System.currentTimeMillis()}.zip")
-            // Would need workspace reference
+            viewModel.exportManager.exportBackup(workspace, file)
             withContext(Dispatchers.Main) {
                 Toast.makeText(context, "Backup: ${file.name}", Toast.LENGTH_SHORT).show()
                 dismiss()
