@@ -24,6 +24,8 @@ class FlashcardDashboardAdapter(
         notifyDataSetChanged()
     }
 
+    fun getItem(position: Int): Flashcard = items[position]
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): FlashcardViewHolder {
         val view = LayoutInflater.from(parent.context)
             .inflate(R.layout.item_flashcard_dashboard, parent, false)

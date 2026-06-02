@@ -9,11 +9,13 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
+import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.cnnt.app.R
 import com.cnnt.app.data.model.Flashcard
 import com.cnnt.app.ui.MainViewModel
+import com.google.android.material.snackbar.Snackbar
 
 class FlashcardDialog(
     context: Context,
@@ -34,6 +36,7 @@ class FlashcardDialog(
     private lateinit var inputFront: EditText
     private lateinit var inputBack: EditText
     private lateinit var inputTags: EditText
+    private val pendingSwipeDeletes = linkedMapOf<String, Flashcard>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -69,6 +72,7 @@ class FlashcardDialog(
 
         recycler.layoutManager = LinearLayoutManager(context)
         recycler.adapter = adapter
+        attachSwipeToDelete(recycler)
 
         refreshCards()
 
@@ -106,9 +110,10 @@ class FlashcardDialog(
 
     private fun refreshCards() {
         currentCards = viewModel.flashcards.value.sortedBy { it.nextReview }.toMutableList()
+            .filterNot { pendingSwipeDeletes.containsKey(it.id) }
+            .toMutableList()
         adapter.submit(currentCards)
-        val dueCount = currentCards.count { it.nextReview <= System.currentTimeMillis() }
-        statsView.text = "${currentCards.size} cards • $dueCount vencidos"
+        updateStats()
     }
 
     private fun startCreate(mode: EditorMode) {
@@ -209,8 +214,7 @@ class FlashcardDialog(
         currentCards.add(toSave)
         currentCards.sortBy { it.nextReview }
         adapter.submit(currentCards)
-        val dueCount = currentCards.count { it.nextReview <= System.currentTimeMillis() }
-        statsView.text = "${currentCards.size} cards • $dueCount vencidos"
+        updateStats()
         resetEditor()
         Toast.makeText(context, "Flashcard salvo.", Toast.LENGTH_SHORT).show()
     }
@@ -222,12 +226,60 @@ class FlashcardDialog(
         }
         currentCards.removeAll { it.id == card.id }
         adapter.submit(currentCards)
-        val dueCount = currentCards.count { it.nextReview <= System.currentTimeMillis() }
-        statsView.text = "${currentCards.size} cards • $dueCount vencidos"
+        updateStats()
         if (editingCardId == card.id) {
             resetEditor()
         }
         Toast.makeText(context, "Flashcard excluído.", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun attachSwipeToDelete(recycler: RecyclerView) {
+        val callback = object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT) {
+            override fun onMove(
+                recyclerView: RecyclerView,
+                viewHolder: RecyclerView.ViewHolder,
+                target: RecyclerView.ViewHolder
+            ): Boolean = false
+
+            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
+                val position = viewHolder.bindingAdapterPosition
+                if (position !in currentCards.indices) {
+                    refreshCards()
+                    return
+                }
+
+                val card = adapter.getItem(position)
+                pendingSwipeDeletes[card.id] = card
+                currentCards.removeAll { it.id == card.id }
+                adapter.submit(currentCards)
+                updateStats()
+
+                if (editingCardId == card.id) {
+                    resetEditor()
+                }
+
+                Snackbar.make(recycler, "Flashcard removido", Snackbar.LENGTH_INDEFINITE)
+                    .setDuration(5000)
+                    .setAction("Desfazer") {
+                        pendingSwipeDeletes.remove(card.id)
+                        refreshCards()
+                    }
+                    .addCallback(object : Snackbar.Callback() {
+                        override fun onDismissed(transientBottomBar: Snackbar?, event: Int) {
+                            if (pendingSwipeDeletes.remove(card.id) != null) {
+                                deleteCard(card)
+                            }
+                        }
+                    })
+                    .show()
+            }
+        }
+        ItemTouchHelper(callback).attachToRecyclerView(recycler)
+    }
+
+    private fun updateStats() {
+        val dueCount = currentCards.count { it.nextReview <= System.currentTimeMillis() }
+        statsView.text = "${currentCards.size} cards • $dueCount vencidos"
     }
 
     private fun resetEditor() {
@@ -247,5 +299,13 @@ class FlashcardDialog(
 
     private fun detectOrigin(card: Flashcard): String? {
         return card.tags.firstOrNull { it.startsWith("origin:") }?.substringAfter("origin:")
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (pendingSwipeDeletes.isEmpty()) return
+        val cardsToDelete = pendingSwipeDeletes.values.toList()
+        pendingSwipeDeletes.clear()
+        cardsToDelete.forEach(::deleteCard)
     }
 }
