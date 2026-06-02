@@ -46,6 +46,7 @@ class ToolbarManager(
             BrushPickerDialog(activity) { brush ->
                 currentBrush = brush
                 onBrushSelected?.invoke(brush)
+                updateActiveMode(CanvasMode.DRAW)
             }.show()
         }
 
@@ -103,6 +104,11 @@ class ToolbarManager(
             onFlashcardClicked?.invoke()
         }
 
+        binding.btnFlashcardTool.setOnClickListener {
+            onModeSelected?.invoke(CanvasMode.FLASHCARD)
+            highlightButton(binding.btnFlashcardTool)
+        }
+
         binding.btnBrushSettings.setOnClickListener {
             showBrushSettings()
         }
@@ -158,8 +164,41 @@ class ToolbarManager(
     }
 
     private fun highlightButton(activeBtn: View) {
-        listOf<View>(binding.btnEraser, binding.btnSelect, binding.btnLasso).forEach { btn ->
+        listOf<View>(
+            binding.btnBrush,
+            binding.btnEraser,
+            binding.btnSelect,
+            binding.btnLasso,
+            binding.btnFlashcardTool
+        ).forEach { btn ->
             btn.alpha = if (btn == activeBtn) 1.0f else 0.6f
+        }
+    }
+
+    fun updateActiveMode(mode: CanvasMode, isTemporary: Boolean = false) {
+        when (mode) {
+            CanvasMode.DRAW -> highlightButton(binding.btnBrush)
+            CanvasMode.ERASE -> highlightButton(binding.btnEraser)
+            CanvasMode.SELECT -> highlightButton(binding.btnSelect)
+            CanvasMode.LASSO -> highlightButton(binding.btnLasso)
+            CanvasMode.FLASHCARD -> highlightButton(binding.btnFlashcardTool)
+            CanvasMode.PAN, CanvasMode.INSERT -> {
+                listOf<View>(
+                    binding.btnBrush,
+                    binding.btnEraser,
+                    binding.btnSelect,
+                    binding.btnLasso,
+                    binding.btnFlashcardTool
+                ).forEach { it.alpha = 0.6f }
+            }
+        }
+
+        if (isTemporary) {
+            when (mode) {
+                CanvasMode.ERASE -> binding.btnEraser.alpha = 1.0f
+                CanvasMode.LASSO -> binding.btnLasso.alpha = 1.0f
+                else -> {}
+            }
         }
     }
 }

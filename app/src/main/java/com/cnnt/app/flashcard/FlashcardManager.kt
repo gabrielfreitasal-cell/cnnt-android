@@ -6,9 +6,48 @@ import com.cnnt.app.data.model.ReviewEntry
 import com.cnnt.app.data.model.ReviewResult
 
 class FlashcardManager {
+    private val clozeRegex = Regex("\\{\\{c([12])::(.+?)}}")
 
     fun createFlashcard(front: String, back: String, tags: List<String> = emptyList()): Flashcard {
-        return Flashcard(front = front, back = back, tags = tags)
+        return createBasicFlashcard(front, back, tags)
+    }
+
+    fun createBasicFlashcard(
+        front: String,
+        back: String,
+        tags: List<String> = emptyList(),
+        linkedRegionId: String? = null,
+        boardId: String? = null,
+        origin: String? = null
+    ): Flashcard {
+        return Flashcard(
+            front = front.trim(),
+            back = back.trim(),
+            tags = normalizeTags(tags, "type:basic", origin?.let { "origin:$it" }),
+            linkedRegionId = linkedRegionId,
+            boardId = boardId
+        )
+    }
+
+    fun createClozeFlashcard(
+        text: String,
+        tags: List<String> = emptyList(),
+        linkedRegionId: String? = null,
+        boardId: String? = null,
+        origin: String? = null
+    ): Flashcard {
+        val normalizedText = text.trim()
+        val matches = clozeRegex.findAll(normalizedText).toList()
+        require(matches.isNotEmpty()) { "Informe ao menos uma oclusão no formato {{c1::texto}}" }
+        require(matches.size <= 2) { "Máximo de 2 oclusões por card cloze" }
+        val answers = matches.joinToString(separator = "\n") { it.groupValues[2] }
+        return Flashcard(
+            front = normalizedText,
+            back = answers,
+            tags = normalizeTags(tags, "type:cloze", origin?.let { "origin:$it" }),
+            linkedRegionId = linkedRegionId,
+            boardId = boardId
+        )
     }
 
     fun createFromSelection(selectedText: String, tags: List<String> = emptyList()): Flashcard {
@@ -16,7 +55,7 @@ class FlashcardManager {
         val parts = selectedText.split(Regex("[:\\n]"), 2)
         val front = parts[0].trim()
         val back = if (parts.size > 1) parts[1].trim() else ""
-        return Flashcard(front = front, back = back, tags = tags)
+        return createBasicFlashcard(front, back, tags)
     }
 
     fun reviewFlashcard(flashcard: Flashcard, result: ReviewResult, responseTime: Long = 0): Flashcard {
@@ -89,6 +128,34 @@ class FlashcardManager {
         } else 0f
 
         return FlashcardStats(total, due, totalReviews, avgAccuracy)
+    }
+
+    fun isCloze(flashcard: Flashcard): Boolean {
+        return flashcard.tags.any { it.equals("type:cloze", ignoreCase = true) } ||
+            clozeRegex.containsMatchIn(flashcard.front)
+    }
+
+    fun renderFront(flashcard: Flashcard): String {
+        return if (isCloze(flashcard)) {
+            flashcard.front.replace(clozeRegex, "[____]")
+        } else {
+            flashcard.front
+        }
+    }
+
+    fun renderBack(flashcard: Flashcard): String {
+        return if (isCloze(flashcard)) {
+            flashcard.back.ifBlank { flashcard.front }
+        } else {
+            flashcard.back
+        }
+    }
+
+    private fun normalizeTags(tags: List<String>, vararg extraTags: String?): List<String> {
+        return (tags + extraTags.filterNotNull())
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
     }
 }
 

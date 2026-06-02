@@ -19,11 +19,14 @@ import com.cnnt.app.data.model.BrushPreset
 import com.cnnt.app.data.model.Layer
 import com.cnnt.app.data.model.ObjectStyle
 import com.cnnt.app.data.model.SpatialObject
+import com.cnnt.app.data.model.SpatialObjectType
 import com.cnnt.app.data.model.Stroke
 import com.cnnt.app.data.model.StrokePoint
 import com.cnnt.app.ink.InkEngine
 import kotlin.math.abs
 import kotlin.math.hypot
+import kotlin.math.max
+import kotlin.math.min
 
 class InfiniteCanvasView @JvmOverloads constructor(
     context: Context,
@@ -35,9 +38,12 @@ class InfiniteCanvasView @JvmOverloads constructor(
         fun onStrokeCompleted(stroke: Stroke)
         fun onStrokeErased(strokeId: String)
         fun onObjectSelected(obj: SpatialObject?)
+        fun onObjectCreated(obj: SpatialObject)
         fun onObjectMoved(obj: SpatialObject, newX: Float, newY: Float)
         fun onCanvasTransformChanged(scale: Float, translateX: Float, translateY: Float)
         fun onHandwritingStrokeInBlock(blockId: String, points: List<StrokePoint>)
+        fun onModeChanged(mode: CanvasMode, isTemporary: Boolean)
+        fun onFlashcardBlockTapped(obj: SpatialObject)
     }
 
     var listener: CanvasListener? = null
@@ -54,6 +60,7 @@ class InfiniteCanvasView @JvmOverloads constructor(
 
     // Drawing state
     private var currentMode: CanvasMode = CanvasMode.DRAW
+    private var persistentMode: CanvasMode = CanvasMode.DRAW
     private var currentStroke: Stroke? = null
     private var currentBrush: BrushPreset = BrushPreset.gelPen()
     private var currentColor: Int = Color.WHITE
@@ -130,8 +137,11 @@ class InfiniteCanvasView @JvmOverloads constructor(
     private val defaultBrush = BrushPreset.gelPen()
 
     // Stylus button eraser
-    private var previousMode: CanvasMode = CanvasMode.DRAW
     private var stylusButtonDown = false
+    private var stylusButtonDownStartedAt = 0L
+    private var lastStylusShortPressUpTime = 0L
+    private val stylusDoubleTapWindowMs = 300L
+    private val stylusShortPressMaxMs = 300L
 
     // Eraser cursor position (screen coords for visual indicator)
     private var eraserCursorX = -1f
@@ -148,6 +158,11 @@ class InfiniteCanvasView @JvmOverloads constructor(
     private var activeHandwritingBlockId: String? = null
     private val handwritingStrokePoints = mutableListOf<StrokePoint>()
     private var isWritingInBlock = false
+    private var flashcardDragStart: PointF? = null
+    private var flashcardPreviewRect: RectF? = null
+    private var downSelectedObject: SpatialObject? = null
+    private var objectTapCandidate = false
+    private var draggedDuringSelection = false
 
     // Handwriting block paints
     private val hwBlockBorderPaint = Paint().apply {
@@ -217,11 +232,24 @@ class InfiniteCanvasView @JvmOverloads constructor(
     }
 
     fun setMode(mode: CanvasMode) {
+        setModeInternal(mode, isTemporary = false, updatePersistentMode = true)
+    }
+
+    private fun setModeInternal(
+        mode: CanvasMode,
+        isTemporary: Boolean,
+        updatePersistentMode: Boolean
+    ) {
+        if (updatePersistentMode) {
+            persistentMode = mode
+        }
         currentMode = mode
         if (mode != CanvasMode.SELECT) {
             selectedObject = null
             listener?.onObjectSelected(null)
         }
+        listener?.onModeChanged(mode, isTemporary)
+        invalidate()
     }
 
     fun setBrush(brush: BrushPreset) {
@@ -403,13 +431,23 @@ class InfiniteCanvasView @JvmOverloads constructor(
             val buttonPressed = (event.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0
             if (buttonPressed && !stylusButtonDown) {
                 stylusButtonDown = true
-                if (currentMode != CanvasMode.ERASE) {
-                    previousMode = currentMode
-                    currentMode = CanvasMode.ERASE
-                }
+                stylusButtonDownStartedAt = event.eventTime
+                setModeInternal(CanvasMode.ERASE, isTemporary = true, updatePersistentMode = false)
             } else if (!buttonPressed && stylusButtonDown) {
                 stylusButtonDown = false
-                currentMode = previousMode
+                val shortPress = event.eventTime - stylusButtonDownStartedAt <= stylusShortPressMaxMs
+                val isDoubleTap = shortPress &&
+                    lastStylusShortPressUpTime > 0L &&
+                    event.eventTime - lastStylusShortPressUpTime <= stylusDoubleTapWindowMs
+                if (shortPress) {
+                    lastStylusShortPressUpTime = event.eventTime
+                }
+                if (isDoubleTap) {
+                    lassoMode = LassoMode.RECTANGLE
+                    setModeInternal(CanvasMode.LASSO, isTemporary = false, updatePersistentMode = true)
+                } else {
+                    setModeInternal(persistentMode, isTemporary = false, updatePersistentMode = false)
+                }
             }
         }
 
@@ -423,6 +461,7 @@ class InfiniteCanvasView @JvmOverloads constructor(
             CanvasMode.ERASE -> return handleErase(event)
             CanvasMode.SELECT -> return handleSelect(event)
             CanvasMode.LASSO -> return handleLasso(event)
+            CanvasMode.FLASHCARD -> return handleFlashcard(event)
             CanvasMode.PAN -> return handlePan(event)
             CanvasMode.INSERT -> return handleInsert(event)
         }
@@ -618,6 +657,9 @@ class InfiniteCanvasView @JvmOverloads constructor(
                     }
                 }
                 selectedObject = found
+                downSelectedObject = found
+                objectTapCandidate = found != null
+                draggedDuringSelection = false
                 listener?.onObjectSelected(found)
                 if (found != null && !found.locked) {
                     isDraggingObject = true
@@ -631,6 +673,10 @@ class InfiniteCanvasView @JvmOverloads constructor(
                     val newX = canvasPoint.x - dragOffsetX
                     val newY = canvasPoint.y - dragOffsetY
                     val obj = selectedObject!!
+                    if (abs(newX - obj.x) > 2f || abs(newY - obj.y) > 2f) {
+                        draggedDuringSelection = true
+                        objectTapCandidate = false
+                    }
                     val idx = board!!.activeLayer.objects.indexOf(obj)
                     if (idx >= 0) {
                         val oldX = obj.x
@@ -647,7 +693,15 @@ class InfiniteCanvasView @JvmOverloads constructor(
                 if (isDraggingObject && selectedObject != null) {
                     listener?.onObjectMoved(selectedObject!!, selectedObject!!.x, selectedObject!!.y)
                 }
+                if (!draggedDuringSelection && objectTapCandidate) {
+                    val tapped = downSelectedObject
+                    if (tapped?.type == SpatialObjectType.FLASHCARD) {
+                        listener?.onFlashcardBlockTapped(tapped)
+                    }
+                }
                 isDraggingObject = false
+                downSelectedObject = null
+                objectTapCandidate = false
             }
         }
         return true
@@ -767,6 +821,74 @@ class InfiniteCanvasView @JvmOverloads constructor(
         return true
     }
 
+    private fun handleFlashcard(event: MotionEvent): Boolean {
+        val canvasPoint = screenToCanvas(event.x, event.y)
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                flashcardDragStart = canvasPoint
+                flashcardPreviewRect = RectF(canvasPoint.x, canvasPoint.y, canvasPoint.x, canvasPoint.y)
+                invalidate()
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val start = flashcardDragStart ?: return true
+                flashcardPreviewRect = RectF(
+                    min(start.x, canvasPoint.x),
+                    min(start.y, canvasPoint.y),
+                    max(start.x, canvasPoint.x),
+                    max(start.y, canvasPoint.y)
+                )
+                invalidate()
+            }
+            MotionEvent.ACTION_UP -> {
+                val start = flashcardDragStart ?: return true
+                val rect = flashcardPreviewRect ?: RectF(
+                    min(start.x, canvasPoint.x),
+                    min(start.y, canvasPoint.y),
+                    max(start.x, canvasPoint.x),
+                    max(start.y, canvasPoint.y)
+                )
+                val width = (rect.width()).coerceAtLeast(180f)
+                val height = (rect.height()).coerceAtLeast(120f)
+                val left = if (rect.width() < 180f) rect.left - (180f - rect.width()) / 2f else rect.left
+                val top = if (rect.height() < 120f) rect.top - (120f - rect.height()) / 2f else rect.top
+                val layer = board?.activeLayer ?: return true
+                val block = SpatialObject(
+                    type = SpatialObjectType.FLASHCARD,
+                    x = left,
+                    y = top,
+                    width = width,
+                    height = height,
+                    layerId = layer.id,
+                    content = com.cnnt.app.data.model.ObjectContent.FlashcardContent(
+                        previewText = "Novo flashcard",
+                        noteType = "basic"
+                    ),
+                    style = ObjectStyle(
+                        backgroundColor = 0x332E7DFF,
+                        borderColor = 0xFF88CCFF.toInt(),
+                        borderWidth = 2f,
+                        cornerRadius = 10f,
+                        padding = 12f
+                    )
+                )
+                layer.objects.add(block)
+                selectedObject = block
+                listener?.onObjectSelected(block)
+                listener?.onObjectCreated(block)
+                listener?.onFlashcardBlockTapped(block)
+                flashcardDragStart = null
+                flashcardPreviewRect = null
+                invalidate()
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                flashcardDragStart = null
+                flashcardPreviewRect = null
+                invalidate()
+            }
+        }
+        return true
+    }
+
     private fun handleInsert(event: MotionEvent): Boolean {
         // Insert mode: tap to place a new block
         if (event.actionMasked == MotionEvent.ACTION_UP) {
@@ -812,6 +934,13 @@ class InfiniteCanvasView @JvmOverloads constructor(
                     lassoPoints[i].x, lassoPoints[i].y, lassoPaint
                 )
             }
+        }
+
+        flashcardPreviewRect?.let { rect ->
+            selectPaint.strokeWidth = 2f / scale
+            objPaint.color = 0x222E7DFF
+            canvas.drawRoundRect(rect, 10f, 10f, objPaint)
+            canvas.drawRoundRect(rect, 10f, 10f, selectPaint)
         }
 
         // Draw selection indicator
@@ -919,8 +1048,38 @@ class InfiniteCanvasView @JvmOverloads constructor(
             is com.cnnt.app.data.model.ObjectContent.Handwriting -> {
                 drawHandwritingBlock(canvas, obj, content)
             }
+            is com.cnnt.app.data.model.ObjectContent.FlashcardContent -> {
+                drawFlashcardBlock(canvas, obj, content)
+            }
             else -> {}
         }
+    }
+
+    private fun drawFlashcardBlock(
+        canvas: Canvas,
+        obj: SpatialObject,
+        content: com.cnnt.app.data.model.ObjectContent.FlashcardContent
+    ) {
+        val padding = obj.style.padding
+        textPaint.color = 0xFFEAF3FF.toInt()
+        textPaint.textSize = 12f / scale.coerceIn(0.6f, 2f)
+        canvas.drawText(
+            if (content.noteType.equals("cloze", ignoreCase = true)) "Cloze" else "Basic",
+            obj.x + padding,
+            obj.y + padding + textPaint.textSize,
+            textPaint
+        )
+
+        textPaint.color = 0xFFFFFFFF.toInt()
+        textPaint.textSize = 16f / scale.coerceIn(0.6f, 2f)
+        val preview = content.previewText.ifBlank { "Novo flashcard" }
+        val maxChars = if (preview.length > 48) preview.take(45) + "..." else preview
+        canvas.drawText(
+            maxChars,
+            obj.x + padding,
+            obj.y + padding + 32f / scale.coerceIn(0.6f, 2f),
+            textPaint
+        )
     }
 
     private fun drawHandwritingBlock(canvas: Canvas, obj: SpatialObject, content: com.cnnt.app.data.model.ObjectContent.Handwriting) {
@@ -1005,6 +1164,7 @@ class InfiniteCanvasView @JvmOverloads constructor(
         invalidateCache()
         invalidate()
         listener?.onObjectSelected(obj)
+        listener?.onObjectCreated(obj.copy(layerId = board?.activeLayer?.id.orEmpty()))
     }
 
     fun updateHandwritingBlockText(blockId: String, text: String) {
@@ -1254,7 +1414,7 @@ class InfiniteCanvasView @JvmOverloads constructor(
 }
 
 enum class CanvasMode {
-    DRAW, ERASE, SELECT, LASSO, PAN, INSERT
+    DRAW, ERASE, SELECT, LASSO, FLASHCARD, PAN, INSERT
 }
 
 enum class LassoMode {

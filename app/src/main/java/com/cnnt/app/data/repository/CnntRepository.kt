@@ -214,6 +214,10 @@ class CnntRepository(private val database: CnntDatabase) {
         ))
     }
 
+    suspend fun deleteSpatialObject(objId: String) {
+        spatialObjectDao.deleteById(objId)
+    }
+
     // --- Flashcards ---
 
     fun getAllFlashcards(): Flow<List<Flashcard>> = flashcardDao.getAllFlashcards().map { list ->
@@ -237,6 +241,11 @@ class CnntRepository(private val database: CnntDatabase) {
             nextReview = flashcard.nextReview,
             createdAt = flashcard.createdAt
         ))
+    }
+
+    suspend fun deleteFlashcard(flashcardId: String) {
+        val entity = flashcardDao.getFlashcardById(flashcardId) ?: return
+        flashcardDao.delete(entity)
     }
 
     private fun FlashcardEntity.toModel(): Flashcard {

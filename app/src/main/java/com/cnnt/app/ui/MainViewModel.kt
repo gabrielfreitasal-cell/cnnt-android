@@ -39,6 +39,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 import kotlinx.coroutines.withContext
+import java.util.Locale
 
 
 
@@ -379,6 +380,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateSpatialObject(obj: SpatialObject) {
 
+        val notebook = _currentNotebook.value
+        notebook?.boards?.forEach { board ->
+            board.layers.forEach { layer ->
+                val idx = layer.objects.indexOfFirst { it.id == obj.id }
+                if (idx >= 0) {
+                    layer.objects[idx] = obj
+                }
+            }
+        }
+
+        _currentBoard.value = _currentBoard.value
+
         markDirty()
 
         viewModelScope.launch(Dispatchers.IO) {
@@ -387,6 +400,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         }
 
+    }
+
+    fun deleteSpatialObject(objectId: String) {
+
+        val notebook = _currentNotebook.value ?: return
+
+        notebook.boards.forEach { board ->
+            board.layers.forEach { layer ->
+                layer.objects.removeAll { it.id == objectId }
+            }
+        }
+
+        _currentBoard.value = _currentBoard.value
+        markDirty()
+
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.deleteSpatialObject(objectId)
+        }
     }
 
 
@@ -399,6 +430,56 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         }
 
+    }
+
+    fun deleteFlashcard(flashcardId: String) {
+
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.deleteFlashcard(flashcardId)
+        }
+
+    }
+
+    fun syncFlashcardBlockPreview(flashcard: Flashcard) {
+
+        val blockId = flashcard.linkedRegionId ?: return
+        val notebook = _currentNotebook.value ?: return
+        val isCloze = flashcard.tags.any { it.equals("type:cloze", ignoreCase = true) } ||
+            Regex("\\{\\{c[12]::.+?}}").containsMatchIn(flashcard.front)
+        val preview = if (isCloze) {
+            flashcard.front.replace(Regex("\\{\\{c[12]::(.*?)}}"), "[____]")
+        } else {
+            flashcard.front
+        }.trim().ifBlank { "Novo flashcard" }
+
+        notebook.boards.forEach { board ->
+            board.layers.forEach { layer ->
+                val index = layer.objects.indexOfFirst { it.id == blockId }
+                if (index >= 0) {
+                    val obj = layer.objects[index]
+                    val content = obj.content as? ObjectContent.FlashcardContent ?: ObjectContent.FlashcardContent()
+                    val noteType = if (isCloze) "cloze" else "basic"
+                    layer.objects[index] = obj.copy(
+                        content = content.copy(
+                            flashcardId = flashcard.id,
+                            flashcardIds = listOf(flashcard.id),
+                            previewText = preview,
+                            noteType = noteType
+                        ),
+                        updatedAt = System.currentTimeMillis()
+                    )
+                    viewModelScope.launch(Dispatchers.IO) {
+                        repository.saveSpatialObject(layer.objects[index], layer.id)
+                    }
+                }
+            }
+        }
+
+        _currentBoard.value = _currentBoard.value
+    }
+
+    fun removeCanvasLinkedFlashcardBlock(blockId: String) {
+        deleteSpatialObject(blockId)
     }
 
     fun buildWorkspaceSnapshot(): Workspace {

@@ -33,7 +33,12 @@ sealed class ObjectContent {
     data class Link(val url: String, val title: String = "", val thumbnail: String? = null) : ObjectContent()
     data class File(val filePath: String, val fileName: String, val mimeType: String = "") : ObjectContent()
     data class DrawingRegion(val strokes: List<Stroke> = emptyList()) : ObjectContent()
-    data class FlashcardContent(val flashcardId: String) : ObjectContent()
+    data class FlashcardContent(
+        val flashcardId: String = "",
+        val flashcardIds: List<String> = emptyList(),
+        val previewText: String = "",
+        val noteType: String = "basic"
+    ) : ObjectContent()
     data class Group(val childIds: List<String>) : ObjectContent()
     data class Handwriting(
         val recognizedText: String = "",

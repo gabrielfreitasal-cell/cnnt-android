@@ -109,6 +109,7 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
             viewModel.setCurrentBrush(brush)
             binding.canvasView.setBrush(brush)
             binding.canvasView.setMode(CanvasMode.DRAW)
+            toolbarManager.updateActiveMode(CanvasMode.DRAW)
         }
         toolbarManager.onColorSelected = { color ->
             viewModel.setCurrentColor(color)
@@ -119,6 +120,7 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
         }
         toolbarManager.onModeSelected = { mode ->
             binding.canvasView.setMode(mode)
+            toolbarManager.updateActiveMode(mode)
         }
         toolbarManager.onLassoModeSelected = { lassoMode ->
             binding.canvasView.setLassoMode(lassoMode)
@@ -145,6 +147,7 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
             viewModel.setCurrentBrush(brush)
             binding.canvasView.setBrush(brush)
         }
+        toolbarManager.updateActiveMode(CanvasMode.DRAW)
     }
 
     private fun setupSidebar() {
@@ -243,6 +246,7 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
         )
         viewModel.addSpatialObject(obj)
         binding.canvasView.setMode(CanvasMode.SELECT)
+        toolbarManager.updateActiveMode(CanvasMode.SELECT)
     }
 
     private fun insertHandwritingBlock() {
@@ -251,6 +255,7 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
         val centerY = binding.canvasView.height / 2f
         binding.canvasView.addHandwritingBlock(centerX, centerY, 350f, 200f)
         binding.canvasView.setMode(CanvasMode.DRAW)
+        toolbarManager.updateActiveMode(CanvasMode.DRAW)
         Toast.makeText(this, "Bloco de texto inserido. Escreva dentro!", Toast.LENGTH_SHORT).show()
     }
 
@@ -329,7 +334,11 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
     }
 
     private fun showFlashcardDialog() {
-        FlashcardDialog(this, viewModel).show()
+        FlashcardDialog(this, viewModel).apply {
+            setOnDismissListener {
+                binding.canvasView.invalidate()
+            }
+        }.show()
     }
 
     // CanvasListener implementations
@@ -347,12 +356,28 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
         // Update UI to show object properties
     }
 
+    override fun onObjectCreated(obj: SpatialObject) {
+        viewModel.updateSpatialObject(obj)
+    }
+
     override fun onObjectMoved(obj: SpatialObject, newX: Float, newY: Float) {
         viewModel.updateSpatialObject(obj)
     }
 
     override fun onCanvasTransformChanged(scale: Float, translateX: Float, translateY: Float) {
         updateHeaderStatus()
+    }
+
+    override fun onModeChanged(mode: CanvasMode, isTemporary: Boolean) {
+        toolbarManager.updateActiveMode(mode, isTemporary)
+    }
+
+    override fun onFlashcardBlockTapped(obj: SpatialObject) {
+        com.cnnt.app.ui.dialogs.CanvasFlashcardEditorDialog(this, viewModel, obj).apply {
+            setOnDismissListener {
+                binding.canvasView.invalidate()
+            }
+        }.show()
     }
 
     private fun captureCanvasBitmap(): Bitmap? {
