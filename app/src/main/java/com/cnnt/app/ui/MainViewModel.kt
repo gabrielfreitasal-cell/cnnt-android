@@ -420,6 +420,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun deleteSpatialObjects(objectIds: Collection<String>) {
+
+        if (objectIds.isEmpty()) return
+
+        val notebook = _currentNotebook.value ?: return
+
+        notebook.boards.forEach { board ->
+            board.layers.forEach { layer ->
+                layer.objects.removeAll { objectIds.contains(it.id) }
+            }
+        }
+
+        _currentBoard.value = _currentBoard.value
+        markDirty()
+
+        viewModelScope.launch(Dispatchers.IO) {
+            objectIds.forEach { repository.deleteSpatialObject(it) }
+        }
+    }
+
 
 
     fun addFlashcard(flashcard: Flashcard) {

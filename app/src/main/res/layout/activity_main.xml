@@ -275,6 +275,18 @@
                     android:contentDescription="Configurar Pincel"
                     android:layout_marginEnd="4dp" />
 
+                <ImageButton
+                    android:id="@+id/btnDeleteSelection"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:src="@android:drawable/ic_menu_delete"
+                    android:background="@drawable/btn_tool"
+                    android:scaleType="centerInside"
+                    android:padding="7dp"
+                    android:contentDescription="Excluir seleção"
+                    android:layout_marginEnd="4dp"
+                    android:visibility="gone" />
+
             </LinearLayout>
         </HorizontalScrollView>
 

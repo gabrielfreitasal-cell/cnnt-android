@@ -31,6 +31,7 @@ class ToolbarManager(
     var onOcrClicked: (() -> Unit)? = null
     var onFlashcardClicked: (() -> Unit)? = null
     var onBrushSettingsChanged: ((BrushPreset) -> Unit)? = null
+    var onDeleteSelectionClicked: (() -> Unit)? = null
 
     private var currentBrush: BrushPreset = BrushPreset.gelPen()
     private var currentColor: Int = Color.WHITE
@@ -112,6 +113,10 @@ class ToolbarManager(
         binding.btnBrushSettings.setOnClickListener {
             showBrushSettings()
         }
+
+        binding.btnDeleteSelection.setOnClickListener {
+            onDeleteSelectionClicked?.invoke()
+        }
     }
 
     private fun showLassoModePopup() {
@@ -182,7 +187,7 @@ class ToolbarManager(
             CanvasMode.SELECT -> highlightButton(binding.btnSelect)
             CanvasMode.LASSO -> highlightButton(binding.btnLasso)
             CanvasMode.FLASHCARD -> highlightButton(binding.btnFlashcardTool)
-            CanvasMode.PAN, CanvasMode.INSERT -> {
+            CanvasMode.REGION_OCR, CanvasMode.PAN, CanvasMode.INSERT -> {
                 listOf<View>(
                     binding.btnBrush,
                     binding.btnEraser,
@@ -200,5 +205,9 @@ class ToolbarManager(
                 else -> {}
             }
         }
+    }
+
+    fun setDeleteSelectionVisible(visible: Boolean) {
+        binding.btnDeleteSelection.visibility = if (visible) View.VISIBLE else View.GONE
     }
 }

@@ -2,8 +2,11 @@ package com.cnnt.app.ui
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
+import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
@@ -37,6 +40,8 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
 
     private var focusModeActive = false
     private var handwritingReady = false
+    private var currentSelectionIds: List<String> = emptyList()
+    private var exportDialog: ExportDialog? = null
 
     // Accumulate strokes per block for multi-stroke recognition
     private val pendingHandwritingStrokes = mutableMapOf<String, MutableList<List<HandwritingRecognizer.StrokePointData>>>()
@@ -147,7 +152,11 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
             viewModel.setCurrentBrush(brush)
             binding.canvasView.setBrush(brush)
         }
+        toolbarManager.onDeleteSelectionClicked = {
+            deleteCurrentSelection()
+        }
         toolbarManager.updateActiveMode(CanvasMode.DRAW)
+        toolbarManager.setDeleteSelectionVisible(false)
     }
 
     private fun setupSidebar() {
@@ -326,11 +335,27 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
     }
 
     private fun showExportDialog() {
-        ExportDialog(this, viewModel).show()
+        exportDialog = ExportDialog(this, viewModel).also { it.show() }
     }
 
     private fun showOcrDialog() {
-        OcrDialog(this, viewModel) { captureCanvasBitmap() }.show()
+        OcrDialog(
+            this,
+            viewModel,
+            bitmapProvider = { captureCanvasBitmap() },
+            requestRegionSelection = {
+                binding.canvasView.beginOcrRegionSelection()
+                Toast.makeText(this, "Desenhe a região no canvas para OCR", Toast.LENGTH_SHORT).show()
+            },
+            regionBitmapProvider = { region ->
+                captureCanvasBitmap()?.let { bitmap ->
+                    cropBitmapSafely(bitmap, region)
+                }
+            },
+            consumeSelectedRegion = {
+                binding.canvasView.consumePendingOcrRegion()
+            }
+        ).show()
     }
 
     private fun showFlashcardDialog() {
@@ -372,6 +397,11 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
         toolbarManager.updateActiveMode(mode, isTemporary)
     }
 
+    override fun onSelectionChanged(selectedObjects: List<SpatialObject>) {
+        currentSelectionIds = selectedObjects.map { it.id }
+        toolbarManager.setDeleteSelectionVisible(selectedObjects.isNotEmpty())
+    }
+
     override fun onFlashcardBlockTapped(obj: SpatialObject) {
         com.cnnt.app.ui.dialogs.CanvasFlashcardEditorDialog(this, viewModel, obj).apply {
             setOnDismissListener {
@@ -390,6 +420,57 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
         val canvas = Canvas(bitmap)
         binding.canvasView.draw(canvas)
         return bitmap
+    }
+
+    private fun cropBitmapSafely(source: Bitmap, region: Rect): Bitmap {
+        val left = region.left.coerceIn(0, source.width - 1)
+        val top = region.top.coerceIn(0, source.height - 1)
+        val right = region.right.coerceIn(left + 1, source.width)
+        val bottom = region.bottom.coerceIn(top + 1, source.height)
+        val cropped = Bitmap.createBitmap(source, left, top, right - left, bottom - top)
+        source.recycle()
+        return cropped
+    }
+
+    private fun deleteCurrentSelection() {
+        val deletedIds = binding.canvasView.deleteSelectedObjects()
+        if (deletedIds.isEmpty()) return
+        viewModel.deleteSpatialObjects(deletedIds)
+        currentSelectionIds = emptyList()
+        toolbarManager.setDeleteSelectionVisible(false)
+        Toast.makeText(this, "Seleção excluída", Toast.LENGTH_SHORT).show()
+    }
+
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menu.add(0, MENU_DELETE_SELECTION, 0, "Excluir seleção")
+        menu.add(0, MENU_LASSO_FREE, 1, "Laço livre")
+        menu.add(0, MENU_LASSO_RECTANGLE, 2, "Laço retangular")
+        return true
+    }
+
+    override fun onPrepareOptionsMenu(menu: Menu): Boolean {
+        menu.findItem(MENU_DELETE_SELECTION)?.isVisible = currentSelectionIds.isNotEmpty()
+        return super.onPrepareOptionsMenu(menu)
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        return when (item.itemId) {
+            MENU_DELETE_SELECTION -> {
+                deleteCurrentSelection()
+                true
+            }
+            MENU_LASSO_FREE -> {
+                binding.canvasView.setLassoMode(com.cnnt.app.canvas.LassoMode.FREE)
+                binding.canvasView.setMode(CanvasMode.LASSO)
+                true
+            }
+            MENU_LASSO_RECTANGLE -> {
+                binding.canvasView.setLassoMode(com.cnnt.app.canvas.LassoMode.RECTANGLE)
+                binding.canvasView.setMode(CanvasMode.LASSO)
+                true
+            }
+            else -> super.onOptionsItemSelected(item)
+        }
     }
 
     private fun updateHeaderStatus() {
@@ -463,5 +544,18 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
         } else {
             super.onBackPressed()
         }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (exportDialog?.handleActivityResult(requestCode, resultCode, data) == true) {
+            return
+        }
+    }
+
+    companion object {
+        private const val MENU_DELETE_SELECTION = 1001
+        private const val MENU_LASSO_FREE = 1002
+        private const val MENU_LASSO_RECTANGLE = 1003
     }
 }

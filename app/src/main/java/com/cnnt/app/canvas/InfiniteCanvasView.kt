@@ -8,6 +8,8 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.PointF
+import android.graphics.Path
+import android.graphics.Rect
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.MotionEvent
@@ -44,6 +46,7 @@ class InfiniteCanvasView @JvmOverloads constructor(
         fun onHandwritingStrokeInBlock(blockId: String, points: List<StrokePoint>)
         fun onModeChanged(mode: CanvasMode, isTemporary: Boolean)
         fun onFlashcardBlockTapped(obj: SpatialObject)
+        fun onSelectionChanged(selectedObjects: List<SpatialObject>)
     }
 
     var listener: CanvasListener? = null
@@ -89,15 +92,21 @@ class InfiniteCanvasView @JvmOverloads constructor(
 
     // Selection
     private var selectedObject: SpatialObject? = null
+    private val selectedObjects = mutableListOf<SpatialObject>()
     private var isDraggingObject = false
     private var dragOffsetX = 0f
     private var dragOffsetY = 0f
+    private var groupDragAnchor = PointF()
+    private val groupDragStartPositions = linkedMapOf<String, PointF>()
 
     // Lasso selection
     private val lassoPoints = mutableListOf<PointF>()
+    private val lassoPath = Path()
     private var isLassoing = false
     private var lassoMode: LassoMode = LassoMode.FREE
     private var lassoStartPoint: PointF? = null
+    private var pendingRegionSelection = false
+    private var pendingRegionRect: RectF? = null
 
     // Palm rejection
     private var palmRejectionEnabled = true
@@ -244,9 +253,13 @@ class InfiniteCanvasView @JvmOverloads constructor(
             persistentMode = mode
         }
         currentMode = mode
-        if (mode != CanvasMode.SELECT) {
+        if (mode != CanvasMode.SELECT && mode != CanvasMode.LASSO && mode != CanvasMode.REGION_OCR) {
             selectedObject = null
             listener?.onObjectSelected(null)
+        }
+        if (mode != CanvasMode.LASSO && mode != CanvasMode.REGION_OCR) {
+            clearMultiSelection()
+            clearLassoOverlay()
         }
         listener?.onModeChanged(mode, isTemporary)
         invalidate()
@@ -293,6 +306,37 @@ class InfiniteCanvasView @JvmOverloads constructor(
 
     fun setLassoMode(mode: LassoMode) {
         lassoMode = mode
+    }
+
+    fun beginOcrRegionSelection() {
+        pendingRegionSelection = true
+        setModeInternal(CanvasMode.REGION_OCR, isTemporary = false, updatePersistentMode = false)
+    }
+
+    fun consumePendingOcrRegion(): Rect? {
+        val rect = pendingRegionRect ?: return null
+        pendingRegionRect = null
+        return Rect(
+            rect.left.toInt(),
+            rect.top.toInt(),
+            rect.right.toInt(),
+            rect.bottom.toInt()
+        )
+    }
+
+    fun hasSelectedObjects(): Boolean = selectedObjects.isNotEmpty()
+
+    fun deleteSelectedObjects(): List<String> {
+        val ids = selectedObjects.map { it.id }
+        val layer = board?.activeLayer ?: return emptyList()
+        if (ids.isEmpty()) return emptyList()
+        layer.objects.removeAll { ids.contains(it.id) }
+        clearMultiSelection()
+        selectedObject = null
+        listener?.onObjectSelected(null)
+        invalidateCache()
+        invalidate()
+        return ids
     }
 
     fun undo() {
@@ -462,6 +506,7 @@ class InfiniteCanvasView @JvmOverloads constructor(
             CanvasMode.SELECT -> return handleSelect(event)
             CanvasMode.LASSO -> return handleLasso(event)
             CanvasMode.FLASHCARD -> return handleFlashcard(event)
+            CanvasMode.REGION_OCR -> return handleLasso(event)
             CanvasMode.PAN -> return handlePan(event)
             CanvasMode.INSERT -> return handleInsert(event)
         }
@@ -662,14 +707,21 @@ class InfiniteCanvasView @JvmOverloads constructor(
                 draggedDuringSelection = false
                 listener?.onObjectSelected(found)
                 if (found != null && !found.locked) {
-                    isDraggingObject = true
-                    dragOffsetX = canvasPoint.x - found.x
-                    dragOffsetY = canvasPoint.y - found.y
+                    if (selectedObjects.any { it.id == found.id }) {
+                        startGroupDrag(canvasPoint)
+                    } else {
+                        isDraggingObject = true
+                        dragOffsetX = canvasPoint.x - found.x
+                        dragOffsetY = canvasPoint.y - found.y
+                    }
                 }
                 invalidate()
             }
             MotionEvent.ACTION_MOVE -> {
-                if (isDraggingObject && selectedObject != null) {
+                if (isDraggingObject && selectedObjects.size > 1) {
+                    moveSelectedGroup(canvasPoint)
+                    invalidate()
+                } else if (isDraggingObject && selectedObject != null) {
                     val newX = canvasPoint.x - dragOffsetX
                     val newY = canvasPoint.y - dragOffsetY
                     val obj = selectedObject!!
@@ -690,7 +742,9 @@ class InfiniteCanvasView @JvmOverloads constructor(
                 }
             }
             MotionEvent.ACTION_UP -> {
-                if (isDraggingObject && selectedObject != null) {
+                if (isDraggingObject && selectedObjects.size > 1) {
+                    selectedObjects.forEach { listener?.onObjectMoved(it, it.x, it.y) }
+                } else if (isDraggingObject && selectedObject != null) {
                     listener?.onObjectMoved(selectedObject!!, selectedObject!!.x, selectedObject!!.y)
                 }
                 if (!draggedDuringSelection && objectTapCandidate) {
@@ -700,6 +754,7 @@ class InfiniteCanvasView @JvmOverloads constructor(
                     }
                 }
                 isDraggingObject = false
+                groupDragStartPositions.clear()
                 downSelectedObject = null
                 objectTapCandidate = false
             }
@@ -732,7 +787,7 @@ class InfiniteCanvasView @JvmOverloads constructor(
             }
             MotionEvent.ACTION_UP -> {
                 isLassoing = false
-                selectStrokesInLasso()
+                finishLassoSelection()
                 invalidate()
             }
         }
@@ -759,24 +814,95 @@ class InfiniteCanvasView @JvmOverloads constructor(
             }
             MotionEvent.ACTION_UP -> {
                 isLassoing = false
-                selectStrokesInLasso()
+                finishLassoSelection()
                 invalidate()
             }
         }
     }
 
-    private fun selectStrokesInLasso() {
+    private fun finishLassoSelection() {
         if (lassoPoints.size < 3) return
+        if (currentMode == CanvasMode.REGION_OCR) {
+            val bounds = computeSelectionBounds(lassoPoints) ?: return
+            pendingRegionRect = bounds
+            clearLassoOverlay()
+            setModeInternal(persistentMode, isTemporary = false, updatePersistentMode = false)
+            invalidate()
+            return
+        }
+        selectObjectsInLasso()
+    }
+
+    private fun selectObjectsInLasso() {
         val layer = board?.activeLayer ?: return
-        val selected = mutableListOf<Stroke>()
-        for (stroke in layer.strokes) {
-            if (stroke.points.any { pt -> isPointInPolygon(pt.x, pt.y, lassoPoints) }) {
-                selected.add(stroke)
+        val matches = layer.objects.filter { obj ->
+            val centerX = obj.x + obj.width / 2f
+            val centerY = obj.y + obj.height / 2f
+            isPointInPolygon(centerX, centerY, lassoPoints)
+        }
+        selectedObjects.clear()
+        selectedObjects.addAll(matches)
+        selectedObject = matches.firstOrNull()
+        listener?.onObjectSelected(selectedObject)
+        listener?.onSelectionChanged(selectedObjects.toList())
+        clearLassoOverlay()
+        invalidate()
+    }
+
+    private fun clearLassoOverlay() {
+        lassoPoints.clear()
+        lassoPath.reset()
+        isLassoing = false
+    }
+
+    private fun clearMultiSelection() {
+        if (selectedObjects.isEmpty()) return
+        selectedObjects.clear()
+        listener?.onSelectionChanged(emptyList())
+    }
+
+    private fun computeSelectionBounds(points: List<PointF>): RectF? {
+        if (points.isEmpty()) return null
+        var minX = Float.MAX_VALUE
+        var minY = Float.MAX_VALUE
+        var maxX = Float.MIN_VALUE
+        var maxY = Float.MIN_VALUE
+        points.forEach { point ->
+            minX = min(minX, point.x)
+            minY = min(minY, point.y)
+            maxX = max(maxX, point.x)
+            maxY = max(maxY, point.y)
+        }
+        if (maxX <= minX || maxY <= minY) return null
+        return RectF(minX, minY, maxX, maxY)
+    }
+
+    private fun startGroupDrag(canvasPoint: PointF) {
+        isDraggingObject = true
+        groupDragAnchor = PointF(canvasPoint.x, canvasPoint.y)
+        groupDragStartPositions.clear()
+        selectedObjects.forEach { groupDragStartPositions[it.id] = PointF(it.x, it.y) }
+    }
+
+    private fun moveSelectedGroup(canvasPoint: PointF) {
+        val dx = canvasPoint.x - groupDragAnchor.x
+        val dy = canvasPoint.y - groupDragAnchor.y
+        val layer = board?.activeLayer ?: return
+        val moved = mutableListOf<SpatialObject>()
+        selectedObjects.forEach { selected ->
+            val origin = groupDragStartPositions[selected.id] ?: return@forEach
+            val updated = selected.copy(x = origin.x + dx, y = origin.y + dy)
+            val index = layer.objects.indexOfFirst { it.id == selected.id }
+            if (index >= 0) {
+                layer.objects[index] = updated
+                moved.add(updated)
             }
         }
-        // Highlight selected strokes (for now, just mark them)
-        if (selected.isNotEmpty()) {
-            listener?.onObjectSelected(null)
+        if (moved.isNotEmpty()) {
+            selectedObjects.clear()
+            selectedObjects.addAll(moved)
+            selectedObject = moved.firstOrNull()
+            listener?.onSelectionChanged(selectedObjects.toList())
         }
     }
 
@@ -936,6 +1062,10 @@ class InfiniteCanvasView @JvmOverloads constructor(
             }
         }
 
+        if (selectedObjects.isNotEmpty()) {
+            drawSelectionGroup(canvas)
+        }
+
         flashcardPreviewRect?.let { rect ->
             selectPaint.strokeWidth = 2f / scale
             objPaint.color = 0x222E7DFF
@@ -1053,6 +1183,29 @@ class InfiniteCanvasView @JvmOverloads constructor(
             }
             else -> {}
         }
+    }
+
+    private fun drawSelectionGroup(canvas: Canvas) {
+        val bounds = selectedObjectsBounds() ?: return
+        selectPaint.strokeWidth = 2f / scale
+        objPaint.color = 0x182E7DFF
+        canvas.drawRoundRect(bounds, 10f / scale, 10f / scale, objPaint)
+        canvas.drawRoundRect(bounds, 10f / scale, 10f / scale, selectPaint)
+    }
+
+    private fun selectedObjectsBounds(): RectF? {
+        if (selectedObjects.isEmpty()) return null
+        var minX = Float.MAX_VALUE
+        var minY = Float.MAX_VALUE
+        var maxX = Float.MIN_VALUE
+        var maxY = Float.MIN_VALUE
+        selectedObjects.forEach { obj ->
+            minX = min(minX, obj.x)
+            minY = min(minY, obj.y)
+            maxX = max(maxX, obj.x + obj.width)
+            maxY = max(maxY, obj.y + obj.height)
+        }
+        return RectF(minX, minY, maxX, maxY)
     }
 
     private fun drawFlashcardBlock(
@@ -1414,7 +1567,7 @@ class InfiniteCanvasView @JvmOverloads constructor(
 }
 
 enum class CanvasMode {
-    DRAW, ERASE, SELECT, LASSO, FLASHCARD, PAN, INSERT
+    DRAW, ERASE, SELECT, LASSO, FLASHCARD, REGION_OCR, PAN, INSERT
 }
 
 enum class LassoMode {
