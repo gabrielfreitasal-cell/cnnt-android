@@ -22,6 +22,16 @@ class CnntRepository(private val database: CnntDatabase) {
 
     fun getAllNotebooks(): Flow<List<NotebookEntity>> = notebookDao.getAllNotebooks()
 
+    suspend fun getAllNotebookEntities(): List<NotebookEntity> = notebookDao.getAllNotebooksSync()
+
+    suspend fun getAllBoardEntities(): List<BoardEntity> = boardDao.getAllBoardsSync()
+
+    suspend fun getAllLayerEntities(): List<LayerEntity> = boardDao.getAllLayersSync()
+
+    suspend fun getAllStrokeEntities(): List<StrokeEntity> = strokeDao.getAllStrokesSync()
+
+    suspend fun getAllSpatialObjectEntities(): List<SpatialObjectEntity> = spatialObjectDao.getAllObjectsSync()
+
     suspend fun saveNotebook(notebook: Notebook) {
         saveNotebookMetadata(notebook)
         for (board in notebook.boards) {
@@ -223,6 +233,8 @@ class CnntRepository(private val database: CnntDatabase) {
     fun getAllFlashcards(): Flow<List<Flashcard>> = flashcardDao.getAllFlashcards().map { list ->
         list.map { entity -> entity.toModel() }
     }
+
+    suspend fun getAllFlashcardEntities(): List<FlashcardEntity> = flashcardDao.getAllFlashcardsSync()
 
     fun getDueFlashcards(): Flow<List<Flashcard>> = flashcardDao.getDueFlashcards().map { list ->
         list.map { entity -> entity.toModel() }

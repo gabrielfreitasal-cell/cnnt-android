@@ -8,6 +8,9 @@ interface NotebookDao {
     @Query("SELECT * FROM notebooks ORDER BY updatedAt DESC")
     fun getAllNotebooks(): Flow<List<NotebookEntity>>
 
+    @Query("SELECT * FROM notebooks ORDER BY updatedAt DESC")
+    suspend fun getAllNotebooksSync(): List<NotebookEntity>
+
     @Query("SELECT * FROM notebooks WHERE id = :id")
     suspend fun getNotebookById(id: String): NotebookEntity?
 
@@ -29,6 +32,9 @@ interface BoardDao {
     @Query("SELECT * FROM boards WHERE notebookId = :notebookId ORDER BY `order`")
     fun getBoardsByNotebook(notebookId: String): Flow<List<BoardEntity>>
 
+    @Query("SELECT * FROM boards ORDER BY notebookId, `order`")
+    suspend fun getAllBoardsSync(): List<BoardEntity>
+
     @Query("SELECT * FROM boards WHERE notebookId = :notebookId ORDER BY `order`")
     suspend fun getBoardsForNotebookSync(notebookId: String): List<BoardEntity>
 
@@ -47,6 +53,9 @@ interface BoardDao {
     @Query("SELECT * FROM layers WHERE boardId = :boardId ORDER BY `order`")
     suspend fun getLayersForBoard(boardId: String): List<LayerEntity>
 
+    @Query("SELECT * FROM layers ORDER BY boardId, `order`")
+    suspend fun getAllLayersSync(): List<LayerEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertLayer(layer: LayerEntity)
 
@@ -61,6 +70,9 @@ interface BoardDao {
 interface StrokeDao {
     @Query("SELECT * FROM strokes WHERE layerId = :layerId")
     suspend fun getStrokesForLayer(layerId: String): List<StrokeEntity>
+
+    @Query("SELECT * FROM strokes ORDER BY createdAt ASC")
+    suspend fun getAllStrokesSync(): List<StrokeEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(stroke: StrokeEntity)
@@ -80,6 +92,9 @@ interface SpatialObjectDao {
     @Query("SELECT * FROM spatial_objects WHERE layerId = :layerId ORDER BY zIndex")
     suspend fun getObjectsForLayer(layerId: String): List<SpatialObjectEntity>
 
+    @Query("SELECT * FROM spatial_objects ORDER BY layerId, zIndex ASC")
+    suspend fun getAllObjectsSync(): List<SpatialObjectEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(obj: SpatialObjectEntity)
 
@@ -97,6 +112,9 @@ interface SpatialObjectDao {
 interface FlashcardDao {
     @Query("SELECT * FROM flashcards ORDER BY nextReview ASC")
     fun getAllFlashcards(): Flow<List<FlashcardEntity>>
+
+    @Query("SELECT * FROM flashcards ORDER BY nextReview ASC")
+    suspend fun getAllFlashcardsSync(): List<FlashcardEntity>
 
     @Query("SELECT * FROM flashcards WHERE nextReview <= :now ORDER BY nextReview ASC")
     fun getDueFlashcards(now: Long = System.currentTimeMillis()): Flow<List<FlashcardEntity>>

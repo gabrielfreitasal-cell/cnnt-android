@@ -6,13 +6,21 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
+import android.net.Uri
 import com.cnnt.app.canvas.CanvasScale
+import com.cnnt.app.data.dao.BoardEntity
+import com.cnnt.app.data.dao.FlashcardEntity
+import com.cnnt.app.data.dao.LayerEntity
+import com.cnnt.app.data.dao.NotebookEntity
+import com.cnnt.app.data.dao.SpatialObjectEntity
+import com.cnnt.app.data.dao.StrokeEntity
 import com.cnnt.app.data.model.*
 import com.cnnt.app.ink.InkEngine
 import com.google.gson.GsonBuilder
 import java.io.File
 import java.io.FileOutputStream
 import java.io.FileWriter
+import java.io.OutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -243,6 +251,43 @@ class ExportManager(private val context: Context) {
         }
     }
 
+    fun exportFullBackupZip(
+        outputUri: Uri,
+        versionName: String,
+        notebookEntities: List<NotebookEntity>,
+        boardEntities: List<BoardEntity>,
+        layerEntities: List<LayerEntity>,
+        strokeEntities: List<StrokeEntity>,
+        spatialObjectEntities: List<SpatialObjectEntity>,
+        flashcardEntities: List<FlashcardEntity>,
+        cachedPngFiles: List<File>
+    ) {
+        val outputStream = context.contentResolver.openOutputStream(outputUri)
+            ?: throw IllegalStateException("Não foi possível abrir o destino para backup")
+
+        outputStream.use { stream ->
+            ZipOutputStream(stream).use { zip ->
+                writeJsonEntry(zip, "manifest.json", mapOf(
+                    "appVersion" to versionName,
+                    "exportedAt" to System.currentTimeMillis(),
+                    "format" to "cnnt-full-backup-v1"
+                ))
+                writeJsonEntry(zip, "room/notebooks.json", notebookEntities)
+                writeJsonEntry(zip, "room/boards.json", boardEntities)
+                writeJsonEntry(zip, "room/layers.json", layerEntities)
+                writeJsonEntry(zip, "room/strokes.json", strokeEntities)
+                writeJsonEntry(zip, "room/spatial_objects.json", spatialObjectEntities)
+                writeJsonEntry(zip, "room/flashcards.json", flashcardEntities)
+
+                cachedPngFiles.filter { it.exists() && it.isFile }.forEach { file ->
+                    zip.putNextEntry(ZipEntry("cache_png/${file.name}"))
+                    file.inputStream().use { input -> input.copyTo(zip) }
+                    zip.closeEntry()
+                }
+            }
+        }
+    }
+
     fun exportFlashcardsAsCsv(flashcards: List<Flashcard>, outputFile: File) {
         FileWriter(outputFile).use { writer ->
             writer.write("front,back,tags,difficulty\n")
@@ -259,5 +304,11 @@ class ExportManager(private val context: Context) {
         FileOutputStream(file).use { out ->
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
         }
+    }
+
+    private fun writeJsonEntry(zip: ZipOutputStream, name: String, payload: Any) {
+        zip.putNextEntry(ZipEntry(name))
+        zip.write(gson.toJson(payload).toByteArray())
+        zip.closeEntry()
     }
 }
