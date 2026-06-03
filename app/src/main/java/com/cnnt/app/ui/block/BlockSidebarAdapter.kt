@@ -12,14 +12,31 @@ import androidx.recyclerview.widget.RecyclerView
 import com.cnnt.app.R
 
 class BlockSidebarAdapter(
-    private val items: List<SidebarBlockType>,
+    items: List<SidebarBlockType>,
     private val onClick: (SidebarBlockType) -> Unit
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
+    private sealed class Row {
+        data class Category(val title: String) : Row()
+        data class Item(val block: SidebarBlockType) : Row()
+    }
+
+    private val rows: List<Row> = buildList {
+        var currentCategory: String? = null
+        items.forEach { item ->
+            if (currentCategory != item.category) {
+                currentCategory = item.category
+                add(Row.Category(item.category))
+            }
+            add(Row.Item(item))
+        }
+    }
+
     override fun getItemViewType(position: Int): Int {
-        val current = items[position]
-        val previous = items.getOrNull(position - 1)
-        return if (previous == null || previous.category != current.category) TYPE_CATEGORY else TYPE_ITEM
+        return when (rows[position]) {
+            is Row.Category -> TYPE_CATEGORY
+            is Row.Item -> TYPE_ITEM
+        }
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
@@ -32,26 +49,19 @@ class BlockSidebarAdapter(
     }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
-        val item = items[position]
-        when (holder) {
-            is CategoryHolder -> holder.bind(item.category)
-            is ItemHolder -> holder.bind(item, onClick)
+        when (val row = rows[position]) {
+            is Row.Category -> (holder as CategoryHolder).bind(row.title)
+            is Row.Item -> (holder as ItemHolder).bind(row.block, onClick)
         }
     }
 
-    override fun getItemCount(): Int = items.size
+    override fun getItemCount(): Int = rows.size
 
     private class CategoryHolder(view: View) : RecyclerView.ViewHolder(view) {
         private val categoryText = view.findViewById<TextView>(R.id.blockCategoryTitle)
-        private val itemTitle = view.findViewById<TextView>(R.id.blockTitle)
-        private val itemDescription = view.findViewById<TextView>(R.id.blockDescription)
-        private val icon = view.findViewById<ImageView>(R.id.blockIcon)
 
         fun bind(category: String) {
             categoryText.text = category
-            itemTitle.visibility = View.GONE
-            itemDescription.visibility = View.GONE
-            icon.visibility = View.GONE
         }
     }
 

@@ -625,7 +625,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:padding="14dp"
-                android:text="Pressione e arraste um tipo de bloco para o canvas."
+                android:text="Toque para criar um bloco de texto rápido. Pressione e arraste os tipos abaixo para o canvas."
                 android:textColor="#88FFFFFF"
                 android:textSize="12sp"
                 android:background="@drawable/bg_sidebar_item"

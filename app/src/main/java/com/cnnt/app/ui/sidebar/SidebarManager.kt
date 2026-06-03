@@ -79,6 +79,10 @@ class SidebarManager(
     }
 
     private fun setupBlockInserts() {
+        binding.contentPanelEmptyState.setOnClickListener {
+            onInsertBlockClicked?.invoke(BlockType.Text)
+            closeSidebar()
+        }
         binding.contentPanelEmptyState.setOnLongClickListener { view ->
             triggerHapticFeedback(view)
             onInsertHandwritingBlock?.invoke()
