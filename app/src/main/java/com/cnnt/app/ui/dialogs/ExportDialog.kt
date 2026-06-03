@@ -136,6 +136,24 @@ class ExportDialog(
         CoroutineScope(Dispatchers.IO).launch {
             val app = viewModel.getApplication<com.cnnt.app.CnntApplication>()
             val repository = app.repository
+            val blockEntities = repository.getAllContentBlockEntities()
+            val linkEntities = repository.getAllLinkEdgeEntities()
+            val assetUris = blockEntities.mapNotNull { entity ->
+                val json = entity.contentJson.lowercase()
+                when {
+                    "\"uri\"" in json -> runCatching {
+                        val regex = Regex("\"uri\"\\s*:\\s*\"([^\"]+)\"")
+                        regex.find(entity.contentJson)?.groupValues?.getOrNull(1)
+                    }.getOrNull()
+                    else -> null
+                }
+            }.distinct()
+            val assetFiles = assetUris.mapNotNull { uriString ->
+                runCatching {
+                    val uri = Uri.parse(uriString)
+                    if (uri.scheme == "file") File(uri.path!!) else null
+                }.getOrNull()
+            }
             val pngFiles = context.cacheDir
                 ?.listFiles()
                 ?.filter { it.extension.equals("png", ignoreCase = true) }
@@ -149,6 +167,9 @@ class ExportDialog(
                 strokeEntities = repository.getAllStrokeEntities(),
                 spatialObjectEntities = repository.getAllSpatialObjectEntities(),
                 flashcardEntities = repository.getAllFlashcardEntities(),
+                contentBlockEntities = blockEntities,
+                linkEdgeEntities = linkEntities,
+                assetFiles = assetFiles,
                 cachedPngFiles = pngFiles
             )
             withContext(Dispatchers.Main) {

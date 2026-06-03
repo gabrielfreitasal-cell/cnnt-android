@@ -9,8 +9,10 @@ import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import com.cnnt.app.canvas.CanvasScale
 import com.cnnt.app.data.dao.BoardEntity
+import com.cnnt.app.data.dao.ContentBlockEntity
 import com.cnnt.app.data.dao.FlashcardEntity
 import com.cnnt.app.data.dao.LayerEntity
+import com.cnnt.app.data.dao.LinkEdgeEntity
 import com.cnnt.app.data.dao.NotebookEntity
 import com.cnnt.app.data.dao.SpatialObjectEntity
 import com.cnnt.app.data.dao.StrokeEntity
@@ -21,6 +23,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.FileWriter
 import java.io.OutputStream
+import java.util.Locale
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -30,7 +33,13 @@ class ExportManager(private val context: Context) {
     private val inkEngine = InkEngine()
 
     fun exportAsJson(notebook: Notebook, outputFile: File) {
-        val json = gson.toJson(notebook)
+        val json = gson.toJson(
+            mapOf(
+                "notebook" to notebook,
+                "blocks" to notebook.boards.flatMap { board -> board.layers.flatMap { it.contentBlocks } },
+                "links" to notebook.boards.flatMap { board -> board.layers.flatMap { it.linkEdges } }
+            )
+        )
         FileWriter(outputFile).use { it.write(json) }
     }
 
@@ -64,6 +73,38 @@ class ExportManager(private val context: Context) {
                             sb.appendLine()
                         }
                         else -> {}
+                    }
+                }
+
+                for (block in layer.contentBlocks) {
+                    when (val content = block.content) {
+                        is BlockContent.TextNote -> {
+                            if (content.text.isNotBlank()) {
+                                sb.appendLine(content.text)
+                                sb.appendLine()
+                            }
+                        }
+                        is BlockContent.Markdown -> {
+                            sb.appendLine(content.markdown)
+                            sb.appendLine()
+                        }
+                        is BlockContent.InteractiveText -> {
+                            sb.appendLine("### ${content.question}")
+                            content.alternatives.forEach { alternative ->
+                                sb.appendLine("- ${alternative.text}")
+                            }
+                            if (content.explanation.isNotBlank()) {
+                                sb.appendLine()
+                                sb.appendLine(content.explanation)
+                            }
+                            sb.appendLine()
+                        }
+                        is BlockContent.Flashcard -> {
+                            sb.appendLine("> Flashcard: ${content.previewText}")
+                            sb.appendLine()
+                        }
+                        is BlockContent.Image -> sb.appendLine("![${content.displayName}](${content.uri})")
+                        is BlockContent.Pdf -> sb.appendLine("[PDF] ${content.displayName} (${content.uri})")
                     }
                 }
 
@@ -108,6 +149,41 @@ class ExportManager(private val context: Context) {
                     }
                     nodes.add(node)
                 }
+                for (block in layer.contentBlocks) {
+                    val node = mutableMapOf<String, Any>(
+                        "id" to block.id,
+                        "x" to block.posX.toInt(),
+                        "y" to block.posY.toInt(),
+                        "width" to block.width.toInt(),
+                        "height" to block.height.toInt(),
+                        "type" to "text"
+                    )
+                    when (val content = block.content) {
+                        is BlockContent.TextNote -> node["text"] = content.text
+                        is BlockContent.Markdown -> node["text"] = content.markdown
+                        is BlockContent.Flashcard -> node["text"] = content.previewText
+                        is BlockContent.InteractiveText -> node["text"] = content.question
+                        is BlockContent.Image -> {
+                            node["type"] = "file"
+                            node["file"] = content.uri
+                        }
+                        is BlockContent.Pdf -> {
+                            node["type"] = "file"
+                            node["file"] = content.uri
+                        }
+                    }
+                    nodes.add(node)
+                }
+                layer.linkEdges.forEach { edge ->
+                    edges.add(
+                        mapOf(
+                            "id" to edge.id,
+                            "fromNode" to edge.sourceBlockId,
+                            "toNode" to edge.targetBlockId,
+                            "label" to edge.label
+                        )
+                    )
+                }
             }
         }
 
@@ -128,7 +204,8 @@ class ExportManager(private val context: Context) {
 
         // Calculate bounds and scale
         val allStrokes = board.layers.flatMap { it.strokes }
-        if (allStrokes.isEmpty()) {
+        val allBlocks = board.layers.flatMap { it.contentBlocks }
+        if (allStrokes.isEmpty() && allBlocks.isEmpty()) {
             saveBitmap(bitmap, outputFile)
             return
         }
@@ -143,6 +220,12 @@ class ExportManager(private val context: Context) {
             if (bounds[1] < minY) minY = bounds[1]
             if (bounds[2] > maxX) maxX = bounds[2]
             if (bounds[3] > maxY) maxY = bounds[3]
+        }
+        allBlocks.forEach { block ->
+            minX = minOf(minX, block.posX)
+            minY = minOf(minY, block.posY)
+            maxX = maxOf(maxX, block.posX + block.width)
+            maxY = maxOf(maxY, block.posY + block.height)
         }
 
         val contentWidth = maxX - minX
@@ -162,6 +245,8 @@ class ExportManager(private val context: Context) {
                     ?: BrushPreset.gelPen()
                 inkEngine.renderStroke(canvas, stroke, brush)
             }
+            drawBlocks(canvas, layer.contentBlocks)
+            drawLinks(canvas, layer.contentBlocks, layer.linkEdges)
         }
 
         saveBitmap(bitmap, outputFile)
@@ -181,7 +266,8 @@ class ExportManager(private val context: Context) {
 
             // Render strokes scaled to page
             val allStrokes = board.layers.flatMap { it.strokes }
-            if (allStrokes.isNotEmpty()) {
+            val allBlocks = board.layers.flatMap { it.contentBlocks }
+            if (allStrokes.isNotEmpty() || allBlocks.isNotEmpty()) {
                 var minX = Float.MAX_VALUE
                 var minY = Float.MAX_VALUE
                 var maxX = Float.MIN_VALUE
@@ -192,6 +278,12 @@ class ExportManager(private val context: Context) {
                     if (bounds[1] < minY) minY = bounds[1]
                     if (bounds[2] > maxX) maxX = bounds[2]
                     if (bounds[3] > maxY) maxY = bounds[3]
+                }
+                allBlocks.forEach { block ->
+                    minX = minOf(minX, block.posX)
+                    minY = minOf(minY, block.posY)
+                    maxX = maxOf(maxX, block.posX + block.width)
+                    maxY = maxOf(maxY, block.posY + block.height)
                 }
                 val contentWidth = maxX - minX
                 val contentHeight = maxY - minY
@@ -210,6 +302,8 @@ class ExportManager(private val context: Context) {
                             ?: BrushPreset.gelPen()
                         inkEngine.renderStroke(canvas, stroke, brush)
                     }
+                    drawBlocks(canvas, layer.contentBlocks)
+                    drawLinks(canvas, layer.contentBlocks, layer.linkEdges)
                 }
             }
 
@@ -260,6 +354,9 @@ class ExportManager(private val context: Context) {
         strokeEntities: List<StrokeEntity>,
         spatialObjectEntities: List<SpatialObjectEntity>,
         flashcardEntities: List<FlashcardEntity>,
+        contentBlockEntities: List<ContentBlockEntity>,
+        linkEdgeEntities: List<LinkEdgeEntity>,
+        assetFiles: List<File>,
         cachedPngFiles: List<File>
     ) {
         val outputStream = context.contentResolver.openOutputStream(outputUri)
@@ -278,6 +375,15 @@ class ExportManager(private val context: Context) {
                 writeJsonEntry(zip, "room/strokes.json", strokeEntities)
                 writeJsonEntry(zip, "room/spatial_objects.json", spatialObjectEntities)
                 writeJsonEntry(zip, "room/flashcards.json", flashcardEntities)
+                writeJsonEntry(zip, "room/blocks.json", contentBlockEntities)
+                writeJsonEntry(zip, "room/links.json", linkEdgeEntities)
+
+                assetFiles.filter { it.exists() && it.isFile }.forEach { file ->
+                    val folder = if (file.extension.equals("pdf", true)) "assets/pdfs" else "assets/images"
+                    zip.putNextEntry(ZipEntry("$folder/${file.name}"))
+                    file.inputStream().use { input -> input.copyTo(zip) }
+                    zip.closeEntry()
+                }
 
                 cachedPngFiles.filter { it.exists() && it.isFile }.forEach { file ->
                     zip.putNextEntry(ZipEntry("cache_png/${file.name}"))
@@ -303,6 +409,64 @@ class ExportManager(private val context: Context) {
     private fun saveBitmap(bitmap: Bitmap, file: File) {
         FileOutputStream(file).use { out ->
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+        }
+    }
+
+    private fun drawBlocks(canvas: Canvas, blocks: List<ContentBlock>) {
+        val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#EE20232A") }
+        val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#55FFFFFF")
+            style = Paint.Style.STROKE
+            strokeWidth = 2f
+        }
+        val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = 24f
+        }
+        blocks.sortedBy { it.zIndex }.forEach { block ->
+            val rect = android.graphics.RectF(block.posX, block.posY, block.posX + block.width, block.posY + block.height)
+            canvas.drawRoundRect(rect, 18f, 18f, fill)
+            canvas.drawRoundRect(rect, 18f, 18f, stroke)
+            val label = when (val content = block.content) {
+                is BlockContent.TextNote -> content.text.ifBlank { "Texto" }
+                is BlockContent.Markdown -> content.markdown.lineSequence().firstOrNull().orEmpty().ifBlank { "Markdown" }
+                is BlockContent.Flashcard -> content.previewText.ifBlank { "Flashcard" }
+                is BlockContent.InteractiveText -> content.question.ifBlank { "Questão" }
+                is BlockContent.Image -> content.displayName.ifBlank { "Imagem" }
+                is BlockContent.Pdf -> content.displayName.ifBlank { "PDF" }
+            }.take(48)
+            canvas.drawText(label, block.posX + 16f, block.posY + 32f, text)
+        }
+    }
+
+    private fun drawLinks(canvas: Canvas, blocks: List<ContentBlock>, links: List<LinkEdge>) {
+        if (links.isEmpty()) return
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#88CCFF")
+            style = Paint.Style.STROKE
+            strokeWidth = 3f
+        }
+        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = 16f
+        }
+        val blocksById = blocks.associateBy { it.id }
+        links.forEach { edge ->
+            val source = blocksById[edge.sourceBlockId] ?: return@forEach
+            val target = blocksById[edge.targetBlockId] ?: return@forEach
+            val startX = source.posX + source.width
+            val startY = source.posY + source.height / 2f
+            val endX = target.posX
+            val endY = target.posY + target.height / 2f
+            val controlOffset = kotlin.math.abs(endX - startX) * 0.45f
+            val path = android.graphics.Path().apply {
+                moveTo(startX, startY)
+                cubicTo(startX + controlOffset, startY, endX - controlOffset, endY, endX, endY)
+            }
+            canvas.drawPath(path, paint)
+            if (edge.label.isNotBlank()) {
+                canvas.drawText(edge.label, (startX + endX) / 2f, (startY + endY) / 2f, textPaint)
+            }
         }
     }
 
