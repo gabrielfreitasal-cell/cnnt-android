@@ -2,23 +2,36 @@ package com.cnnt.app.ui
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.PointF
 import android.graphics.Rect
+import android.graphics.RectF
 import android.os.Build
 import android.os.Bundle
+import android.text.InputType
 import android.view.Menu
 import android.view.MenuItem
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
+import android.widget.ArrayAdapter
+import android.widget.EditText
+import android.widget.ListView
+import androidx.appcompat.app.AlertDialog
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.GravityCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import com.cnnt.app.R
 import com.cnnt.app.canvas.CanvasMode
 import com.cnnt.app.canvas.InfiniteCanvasView
 import com.cnnt.app.data.model.*
 import com.cnnt.app.databinding.ActivityMainBinding
+import com.cnnt.app.ui.block.BlockContentFactory
+import com.cnnt.app.ui.block.BlocksOverlayLayout
+import com.cnnt.app.ui.block.BlockView
+import com.cnnt.app.ui.block.LinksOverlayView
 import com.cnnt.app.ui.toolbar.ToolbarManager
 import com.cnnt.app.ui.sidebar.SidebarManager
 import com.cnnt.app.ui.dialogs.BrushPickerDialog
@@ -28,9 +41,10 @@ import com.cnnt.app.ui.dialogs.FlashcardDialog
 import com.cnnt.app.ui.dialogs.OcrDialog
 import com.cnnt.app.debug.DebugDiagnostics
 import com.cnnt.app.ink.HandwritingRecognizer
+import java.util.UUID
 import kotlinx.coroutines.launch
 
-class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
+class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener, BlocksOverlayLayout.Listener {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var viewModel: MainViewModel
@@ -42,6 +56,15 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
     private var handwritingReady = false
     private var currentSelectionIds: List<String> = emptyList()
     private var exportDialog: ExportDialog? = null
+    private var selectedBlockIds = linkedSetOf<String>()
+    private var selectedLinkId: String? = null
+    private var linkingSourceBlockId: String? = null
+    private var pendingMoveBlockId: String? = null
+    private var pendingResizeBlockId: String? = null
+    private var lastRawX = 0f
+    private var lastRawY = 0f
+    private var linkModeEnabled = false
+    private var miniMapVisible = false
 
     // Accumulate strokes per block for multi-stroke recognition
     private val pendingHandwritingStrokes = mutableMapOf<String, MutableList<List<HandwritingRecognizer.StrokePointData>>>()
@@ -59,6 +82,7 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
         setupCanvas()
         setupToolbar()
         setupSidebar()
+        setupBlockOverlays()
         setupObservers()
         setupQuickActions()
         setupDebugOverlay()
@@ -106,6 +130,17 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
         binding.canvasView.listener = this
         binding.canvasView.setPalmRejection(true)
         binding.canvasView.setFingerDrawing(false)
+        binding.canvasView.setOnDragListener { _, event ->
+            when (event.action) {
+                android.view.DragEvent.ACTION_DROP -> {
+                    val item = event.clipData?.getItemAt(0)?.text?.toString() ?: return@setOnDragListener false
+                    val type = runCatching { BlockType.fromKey(item) }.getOrNull() ?: return@setOnDragListener false
+                    createContentBlockFromDrop(type, event.x, event.y)
+                    true
+                }
+                else -> true
+            }
+        }
     }
 
     private fun setupToolbar() {
@@ -153,8 +188,34 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
             binding.canvasView.setBrush(brush)
         }
         toolbarManager.onDeleteSelectionClicked = {
-            deleteCurrentSelection()
+            if (selectedBlockIds.isNotEmpty()) {
+                deleteSelectedBlocks()
+            } else {
+                deleteCurrentSelection()
+            }
         }
+        toolbarManager.onLinkModeToggled = {
+            linkModeEnabled = !linkModeEnabled
+            Toast.makeText(this, if (linkModeEnabled) "Modo ligação ativo" else "Modo ligação desativado", Toast.LENGTH_SHORT).show()
+            renderBlocksAndLinks()
+        }
+        toolbarManager.onCenterCanvasClicked = {
+            val viewport = binding.canvasView.getVisibleWorldRect()
+            binding.canvasView.centerOnWorldPoint(viewport.centerX(), viewport.centerY())
+            syncOverlaysWithCanvas()
+        }
+        toolbarManager.onFitAllClicked = {
+            binding.canvasView.zoomToFit()
+            syncOverlaysWithCanvas()
+        }
+        toolbarManager.onMiniMapToggled = {
+            miniMapVisible = !miniMapVisible
+            binding.miniMapView.visibility = if (miniMapVisible) View.VISIBLE else View.GONE
+            if (miniMapVisible) {
+                syncMiniMap()
+            }
+        }
+        binding.btnSearchBlocks.setOnClickListener { showBlockSearchDialog() }
         toolbarManager.updateActiveMode(CanvasMode.DRAW)
         toolbarManager.setDeleteSelectionVisible(false)
     }
@@ -168,10 +229,26 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
             viewModel.addNewBoard()
         }
         sidebarManager.onInsertBlockClicked = { blockType ->
-            insertBlock(blockType)
+            createContentBlockNearViewportCenter(blockType)
         }
         sidebarManager.onInsertHandwritingBlock = {
             insertHandwritingBlock()
+        }
+    }
+
+    private fun setupBlockOverlays() {
+        binding.blocksOverlay.setListener(this)
+        binding.linksOverlay.onLinkTapped = { edge ->
+            selectedLinkId = edge.id
+            renderBlocksAndLinks()
+            showLinkActions(edge)
+        }
+        binding.linksOverlay.onLinkCreationFinished = { sourceId, targetId ->
+            createLinkEdge(sourceId, targetId)
+        }
+        binding.miniMapView.onNavigate = { worldX, worldY ->
+            binding.canvasView.centerOnWorldPoint(worldX, worldY)
+            syncOverlaysWithCanvas()
         }
     }
 
@@ -180,6 +257,7 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
             viewModel.currentBoard.collect { board ->
                 board?.let {
                     binding.canvasView.setBoard(it)
+                    renderBlocksAndLinks()
                     updateHeaderStatus()
                 }
             }
@@ -201,6 +279,7 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
             viewModel.currentNotebook.collect { notebook ->
                 notebook?.let {
                     sidebarManager.updatePages(it.boards, viewModel.activeBoardIndex())
+                    renderBlocksAndLinks()
                     updateHeaderStatus()
                 }
             }
@@ -210,6 +289,7 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
             viewModel.currentBoard.collect {
                 val notebook = viewModel.currentNotebook.value ?: return@collect
                 sidebarManager.updatePages(notebook.boards, viewModel.activeBoardIndex())
+                renderBlocksAndLinks()
                 updateHeaderStatus()
             }
         }
@@ -240,22 +320,44 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
         }
     }
 
-    private fun insertBlock(type: SpatialObjectType) {
-        val obj = SpatialObject(
+    private fun createContentBlockNearViewportCenter(type: BlockType) {
+        val notebook = viewModel.currentNotebook.value ?: return
+        val layer = viewModel.currentBoard.value?.activeLayer ?: return
+        val viewport = binding.canvasView.getVisibleWorldRect()
+        val centerX = viewport.centerX()
+        val centerY = viewport.centerY()
+        val block = BlockContentFactory.create(
             type = type,
-            x = 100f,
-            y = 100f,
-            width = 200f,
-            height = 150f,
-            content = when (type) {
-                SpatialObjectType.TEXT -> ObjectContent.Text("", 14f)
-                SpatialObjectType.CHECKLIST -> ObjectContent.Checklist(emptyList())
-                else -> ObjectContent.Empty
-            }
+            notebookId = notebook.id,
+            layerId = layer.id,
+            x = centerX - 120f,
+            y = centerY - 80f,
+            zIndex = (layer.contentBlocks.maxOfOrNull { it.zIndex } ?: 0) + 1
         )
-        viewModel.addSpatialObject(obj)
-        binding.canvasView.setMode(CanvasMode.SELECT)
-        toolbarManager.updateActiveMode(CanvasMode.SELECT)
+        viewModel.addContentBlock(block)
+        selectedBlockIds.clear()
+        selectedBlockIds.add(block.id)
+        binding.blocksOverlay.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM)
+        renderBlocksAndLinks()
+    }
+
+    private fun createContentBlockFromDrop(type: BlockType, screenX: Float, screenY: Float) {
+        val notebook = viewModel.currentNotebook.value ?: return
+        val layer = viewModel.currentBoard.value?.activeLayer ?: return
+        val point = binding.canvasView.screenPointToCanvasPoint(screenX, screenY)
+        val block = BlockContentFactory.create(
+            type = type,
+            notebookId = notebook.id,
+            layerId = layer.id,
+            x = point.x,
+            y = point.y,
+            zIndex = (layer.contentBlocks.maxOfOrNull { it.zIndex } ?: 0) + 1
+        )
+        viewModel.addContentBlock(block)
+        selectedBlockIds.clear()
+        selectedBlockIds.add(block.id)
+        binding.blocksOverlay.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM)
+        renderBlocksAndLinks()
     }
 
     private fun insertHandwritingBlock() {
@@ -362,6 +464,7 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
         FlashcardDialog(this, viewModel).apply {
             setOnDismissListener {
                 binding.canvasView.invalidate()
+                renderBlocksAndLinks()
             }
         }.show()
     }
@@ -390,6 +493,7 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
     }
 
     override fun onCanvasTransformChanged(scale: Float, translateX: Float, translateY: Float) {
+        syncOverlaysWithCanvas()
         updateHeaderStatus()
     }
 
@@ -399,7 +503,7 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
 
     override fun onSelectionChanged(selectedObjects: List<SpatialObject>) {
         currentSelectionIds = selectedObjects.map { it.id }
-        toolbarManager.setDeleteSelectionVisible(selectedObjects.isNotEmpty())
+        toolbarManager.setDeleteSelectionVisible(selectedObjects.isNotEmpty() || selectedBlockIds.isNotEmpty())
     }
 
     override fun onFlashcardBlockTapped(obj: SpatialObject) {
@@ -441,6 +545,16 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
         Toast.makeText(this, "Seleção excluída", Toast.LENGTH_SHORT).show()
     }
 
+    private fun deleteSelectedBlocks() {
+        if (selectedBlockIds.isEmpty()) return
+        val ids = selectedBlockIds.toList()
+        selectedBlockIds.clear()
+        viewModel.deleteContentBlocks(ids)
+        toolbarManager.setDeleteSelectionVisible(currentSelectionIds.isNotEmpty())
+        renderBlocksAndLinks()
+        Toast.makeText(this, "Blocos excluídos", Toast.LENGTH_SHORT).show()
+    }
+
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menu.add(0, MENU_DELETE_SELECTION, 0, "Excluir seleção")
         menu.add(0, MENU_LASSO_FREE, 1, "Laço livre")
@@ -456,7 +570,7 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
             MENU_DELETE_SELECTION -> {
-                deleteCurrentSelection()
+                if (selectedBlockIds.isNotEmpty()) deleteSelectedBlocks() else deleteCurrentSelection()
                 true
             }
             MENU_LASSO_FREE -> {
@@ -551,11 +665,370 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener {
         if (exportDialog?.handleActivityResult(requestCode, resultCode, data) == true) {
             return
         }
+        val selectedBlockId = selectedBlockIds.firstOrNull() ?: return
+        if (requestCode == REQUEST_PICK_IMAGE && resultCode == RESULT_OK) {
+            data?.data?.toString()?.let { uri ->
+                updateSelectedBlockFile(selectedBlockId, BlockType.Image, uri)
+            }
+        }
+        if (requestCode == REQUEST_PICK_PDF && resultCode == RESULT_OK) {
+            data?.data?.toString()?.let { uri ->
+                updateSelectedBlockFile(selectedBlockId, BlockType.Pdf, uri)
+            }
+        }
     }
 
     companion object {
         private const val MENU_DELETE_SELECTION = 1001
         private const val MENU_LASSO_FREE = 1002
         private const val MENU_LASSO_RECTANGLE = 1003
+        private const val REQUEST_PICK_IMAGE = 5101
+        private const val REQUEST_PICK_PDF = 5102
+    }
+
+    private fun renderBlocksAndLinks() {
+        val blocks = viewModel.currentLayerBlocks()
+        val links = viewModel.currentLayerLinks()
+        binding.blocksOverlay.submitBlocks(
+            blocks = blocks,
+            links = links,
+            selectedIds = selectedBlockIds,
+            linkingSourceId = linkingSourceBlockId
+        )
+        binding.linksOverlay.submit(
+            blocks = binding.blocksOverlay.screenBounds(),
+            links = links,
+            selectedLinkId = selectedLinkId
+        )
+        toolbarManager.setDeleteSelectionVisible(currentSelectionIds.isNotEmpty() || selectedBlockIds.isNotEmpty())
+        updateBacklinksPanel()
+        syncMiniMap()
+    }
+
+    private fun syncOverlaysWithCanvas() {
+        val (scale, tx, ty) = binding.canvasView.getTransform()
+        binding.blocksOverlay.updateTransform(scale, tx, ty)
+        binding.linksOverlay.submit(
+            blocks = binding.blocksOverlay.screenBounds(),
+            links = viewModel.currentLayerLinks(),
+            selectedLinkId = selectedLinkId
+        )
+        syncMiniMap()
+    }
+
+    private fun syncMiniMap() {
+        if (!miniMapVisible) return
+        binding.miniMapView.submit(
+            viewModel.currentLayerBlocks(),
+            binding.canvasView.getVisibleWorldRect()
+        )
+    }
+
+    private fun updateBacklinksPanel() {
+        val selectedId = selectedBlockIds.firstOrNull()
+        if (selectedId == null) {
+            binding.backlinksPanel.visibility = View.GONE
+            return
+        }
+        val (incoming, outgoing) = viewModel.findRelatedBlocks(selectedId)
+        binding.backlinksPanel.visibility = View.VISIBLE
+        val incomingText = if (incoming.isEmpty()) "Nenhuma entrada" else incoming.joinToString("\n") { "← ${blockLabel(it)}" }
+        val outgoingText = if (outgoing.isEmpty()) "Nenhuma saída" else outgoing.joinToString("\n") { "→ ${blockLabel(it)}" }
+        binding.backlinksContent.text = "$incomingText\n\n$outgoingText"
+    }
+
+    private fun blockLabel(block: ContentBlock): String {
+        return when (val content = block.content) {
+            is BlockContent.TextNote -> content.text.takeIf { it.isNotBlank() } ?: "Texto"
+            is BlockContent.Markdown -> content.markdown.lineSequence().firstOrNull()?.takeIf { it.isNotBlank() } ?: "Markdown"
+            is BlockContent.Flashcard -> content.previewText.ifBlank { "Flashcard" }
+            is BlockContent.InteractiveText -> content.question.ifBlank { "Questão interativa" }
+            is BlockContent.Image -> content.displayName.ifBlank { "Imagem" }
+            is BlockContent.Pdf -> content.displayName.ifBlank { "PDF" }
+        }
+    }
+
+    private fun createLinkEdge(sourceId: String, targetId: String) {
+        val edge = LinkEdge(
+            id = UUID.randomUUID().toString(),
+            sourceBlockId = sourceId,
+            targetBlockId = targetId,
+            label = ""
+        )
+        viewModel.addLinkEdge(edge)
+        selectedLinkId = edge.id
+        linkingSourceBlockId = null
+        binding.linksOverlay.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM)
+        renderBlocksAndLinks()
+        showLinkActions(edge)
+    }
+
+    private fun showLinkActions(edge: LinkEdge) {
+        val actions = arrayOf("Editar rótulo", "Excluir ligação")
+        AlertDialog.Builder(this, R.style.Theme_CNNT_Dialog)
+            .setTitle("Ligação")
+            .setItems(actions) { _, which ->
+                when (which) {
+                    0 -> showLinkLabelDialog(edge)
+                    1 -> {
+                        viewModel.deleteLinkEdge(edge.id)
+                        selectedLinkId = null
+                        renderBlocksAndLinks()
+                    }
+                }
+            }
+            .show()
+    }
+
+    private fun showLinkLabelDialog(edge: LinkEdge) {
+        val input = EditText(this).apply {
+            setText(edge.label)
+            inputType = InputType.TYPE_CLASS_TEXT
+        }
+        AlertDialog.Builder(this, R.style.Theme_CNNT_Dialog)
+            .setTitle("Rótulo da ligação")
+            .setView(input)
+            .setPositiveButton("Salvar") { _, _ ->
+                viewModel.updateLinkEdge(edge.copy(label = input.text.toString()))
+                renderBlocksAndLinks()
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun showBlockSearchDialog() {
+        val input = EditText(this).apply {
+            hint = "Buscar em texto, markdown e questões"
+        }
+        AlertDialog.Builder(this, R.style.Theme_CNNT_Dialog)
+            .setTitle("Buscar blocos")
+            .setView(input)
+            .setPositiveButton("Buscar") { _, _ ->
+                val results = viewModel.searchBlocks(input.text.toString())
+                showSearchResults(results)
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun showSearchResults(results: List<ContentBlock>) {
+        if (results.isEmpty()) {
+            Toast.makeText(this, "Nenhum bloco encontrado", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val listView = ListView(this)
+        listView.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, results.map(::blockLabel))
+        AlertDialog.Builder(this, R.style.Theme_CNNT_Dialog)
+            .setTitle("Resultados")
+            .setView(listView)
+            .setNegativeButton("Fechar", null)
+            .show()
+            .also { dialog ->
+                listView.setOnItemClickListener { _, _, position, _ ->
+                    val block = results[position]
+                    focusBlock(block)
+                    dialog.dismiss()
+                }
+            }
+    }
+
+    private fun focusBlock(block: ContentBlock) {
+        binding.canvasView.centerOnWorldPoint(block.posX + block.width / 2f, block.posY + block.height / 2f)
+        selectedBlockIds.clear()
+        selectedBlockIds.add(block.id)
+        renderBlocksAndLinks()
+    }
+
+    private fun updateSelectedBlockFile(blockId: String, type: BlockType, uri: String) {
+        val block = viewModel.currentLayerBlocks().firstOrNull { it.id == blockId } ?: return
+        val updated = when (type) {
+            BlockType.Image -> block.copy(content = BlockContent.Image(uri = uri, displayName = "Imagem"))
+            BlockType.Pdf -> block.copy(content = BlockContent.Pdf(uri = uri, displayName = "PDF"))
+            else -> block
+        }.copy(updatedAt = System.currentTimeMillis())
+        viewModel.updateContentBlock(updated)
+        renderBlocksAndLinks()
+    }
+
+    private fun requestFileForBlock(blockId: String, type: BlockType) {
+        selectedBlockIds.clear()
+        selectedBlockIds.add(blockId)
+        val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(android.content.Intent.CATEGORY_OPENABLE)
+            this.type = if (type == BlockType.Image) "image/*" else "application/pdf"
+        }
+        startActivityForResult(intent, if (type == BlockType.Image) REQUEST_PICK_IMAGE else REQUEST_PICK_PDF)
+    }
+
+    override fun onBlockSelected(blockId: String) {
+        selectedBlockIds.clear()
+        selectedBlockIds.add(blockId)
+        selectedLinkId = null
+        renderBlocksAndLinks()
+    }
+
+    override fun onBlockUpdated(block: ContentBlock) {
+        viewModel.updateContentBlock(block)
+        renderBlocksAndLinks()
+    }
+
+    override fun onBlockMoved(blockId: String, rawDx: Float, rawDy: Float) {
+        if (pendingMoveBlockId != blockId) {
+            pendingMoveBlockId = blockId
+            lastRawX = rawDx
+            lastRawY = rawDy
+            return
+        }
+        val deltaX = (rawDx - lastRawX) / binding.canvasView.getTransform().first
+        val deltaY = (rawDy - lastRawY) / binding.canvasView.getTransform().first
+        lastRawX = rawDx
+        lastRawY = rawDy
+        val targetIds = if (selectedBlockIds.contains(blockId)) selectedBlockIds else linkedSetOf(blockId)
+        val blocks = viewModel.currentLayerBlocks().associateBy { it.id }
+        targetIds.forEach { id ->
+            val block = blocks[id] ?: return@forEach
+            viewModel.updateContentBlock(
+                block.copy(
+                    posX = block.posX + deltaX,
+                    posY = block.posY + deltaY,
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+        }
+        renderBlocksAndLinks()
+    }
+
+    override fun onBlockMoveFinished(blockId: String) {
+        pendingMoveBlockId = null
+    }
+
+    override fun onResize(blockId: String, direction: BlockView.ResizeDirection, rawDx: Float, rawDy: Float) {
+        if (pendingResizeBlockId != blockId) {
+            pendingResizeBlockId = blockId
+            lastRawX = rawDx
+            lastRawY = rawDy
+            return
+        }
+        val deltaX = (rawDx - lastRawX) / binding.canvasView.getTransform().first
+        val deltaY = (rawDy - lastRawY) / binding.canvasView.getTransform().first
+        lastRawX = rawDx
+        lastRawY = rawDy
+        val block = viewModel.currentLayerBlocks().firstOrNull { it.id == blockId } ?: return
+        var newX = block.posX
+        var newY = block.posY
+        var newWidth = block.width
+        var newHeight = block.height
+        when (direction) {
+            BlockView.ResizeDirection.TOP_LEFT -> {
+                newX += deltaX
+                newY += deltaY
+                newWidth -= deltaX
+                newHeight -= deltaY
+            }
+            BlockView.ResizeDirection.TOP -> {
+                newY += deltaY
+                newHeight -= deltaY
+            }
+            BlockView.ResizeDirection.TOP_RIGHT -> {
+                newY += deltaY
+                newWidth += deltaX
+                newHeight -= deltaY
+            }
+            BlockView.ResizeDirection.RIGHT -> newWidth += deltaX
+            BlockView.ResizeDirection.BOTTOM_RIGHT -> {
+                newWidth += deltaX
+                newHeight += deltaY
+            }
+            BlockView.ResizeDirection.BOTTOM -> newHeight += deltaY
+            BlockView.ResizeDirection.BOTTOM_LEFT -> {
+                newX += deltaX
+                newWidth -= deltaX
+                newHeight += deltaY
+            }
+            BlockView.ResizeDirection.LEFT -> {
+                newX += deltaX
+                newWidth -= deltaX
+            }
+        }
+        val updated = block.copy(
+            posX = newX,
+            posY = newY,
+            width = newWidth.coerceAtLeast(120f),
+            height = newHeight.coerceAtLeast(80f),
+            updatedAt = System.currentTimeMillis()
+        )
+        viewModel.updateContentBlock(updated)
+        renderBlocksAndLinks()
+    }
+
+    override fun onResizeFinished(blockId: String) {
+        pendingResizeBlockId = null
+    }
+
+    override fun onStartLink(blockId: String, anchorX: Float, anchorY: Float) {
+        linkingSourceBlockId = blockId
+        binding.linksOverlay.startLinkPreview(blockId, PointF(anchorX, anchorY))
+        renderBlocksAndLinks()
+    }
+
+    override fun onLinkMove(rawX: Float, rawY: Float) {
+        binding.linksOverlay.updateLinkPreview(PointF(rawX, rawY))
+    }
+
+    override fun onLinkFinish(rawX: Float, rawY: Float) {
+        binding.linksOverlay.finishLinkPreview(PointF(rawX, rawY))
+    }
+
+    override fun onContextAction(blockId: String, action: BlockView.BlockContextAction) {
+        when (action) {
+            BlockView.BlockContextAction.EDIT -> {
+                val block = viewModel.currentLayerBlocks().firstOrNull { it.id == blockId } ?: return
+                when (block.type) {
+                    BlockType.Image, BlockType.Pdf -> requestFileForBlock(blockId, block.type)
+                    BlockType.Flashcard -> showFlashcardDialog()
+                    BlockType.InteractiveText -> onBlockSelected(blockId)
+                    BlockType.Markdown, BlockType.Text -> onBlockSelected(blockId)
+                }
+            }
+            BlockView.BlockContextAction.DUPLICATE -> viewModel.duplicateContentBlock(blockId)
+            BlockView.BlockContextAction.BRING_TO_FRONT -> viewModel.bringContentBlockToFront(blockId)
+            BlockView.BlockContextAction.SEND_TO_BACK -> viewModel.sendContentBlockToBack(blockId)
+            BlockView.BlockContextAction.DELETE -> viewModel.deleteContentBlock(blockId)
+        }
+        renderBlocksAndLinks()
+    }
+
+    override fun onBadgeClicked(blockId: String, incoming: Boolean) {
+        val (incomingBlocks, outgoingBlocks) = viewModel.findRelatedBlocks(blockId)
+        val targets = if (incoming) incomingBlocks else outgoingBlocks
+        if (targets.isEmpty()) {
+            Toast.makeText(this, "Nenhum bloco relacionado", Toast.LENGTH_SHORT).show()
+            return
+        }
+        showRelatedBlocksDialog(targets)
+    }
+
+    override fun onRequestFile(blockId: String, type: BlockType) {
+        requestFileForBlock(blockId, type)
+    }
+
+    override fun onOpenFullscreenPdf(block: ContentBlock) {
+        Toast.makeText(this, "Leitor fullscreen de PDF em breve", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun showRelatedBlocksDialog(blocks: List<ContentBlock>) {
+        val listView = ListView(this)
+        listView.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, blocks.map(::blockLabel))
+        AlertDialog.Builder(this, R.style.Theme_CNNT_Dialog)
+            .setTitle("Blocos relacionados")
+            .setView(listView)
+            .setNegativeButton("Fechar", null)
+            .show()
+            .also { dialog ->
+                listView.setOnItemClickListener { _, _, position, _ ->
+                    focusBlock(blocks[position])
+                    dialog.dismiss()
+                }
+            }
     }
 }

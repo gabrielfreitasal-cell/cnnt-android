@@ -492,6 +492,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         repository.saveSpatialObject(layer.objects[index], layer.id)
                     }
                 }
+                val contentBlockIndex = layer.contentBlocks.indexOfFirst { existing ->
+                    existing.id == blockId ||
+                        (existing.content as? BlockContent.Flashcard)?.flashcardId == flashcard.id
+                }
+                if (contentBlockIndex >= 0) {
+                    val existing = layer.contentBlocks[contentBlockIndex]
+                    val existingContent = existing.content as? BlockContent.Flashcard ?: BlockContent.Flashcard()
+                    layer.contentBlocks[contentBlockIndex] = existing.copy(
+                        content = existingContent.copy(
+                            flashcardId = flashcard.id,
+                            previewText = preview,
+                            noteType = if (isCloze) "cloze" else "basic"
+                        ),
+                        updatedAt = System.currentTimeMillis()
+                    )
+                    viewModelScope.launch(Dispatchers.IO) {
+                        repository.saveContentBlock(layer.contentBlocks[contentBlockIndex])
+                    }
+                }
             }
         }
 
@@ -513,6 +532,151 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 defaultColor = _currentColor.value
             )
         )
+    }
+
+    fun currentLayerBlocks(): List<ContentBlock> {
+        return _currentBoard.value?.activeLayer?.contentBlocks?.sortedBy { it.zIndex } ?: emptyList()
+    }
+
+    fun currentLayerLinks(): List<LinkEdge> {
+        return _currentBoard.value?.activeLayer?.linkEdges ?: emptyList()
+    }
+
+    fun addContentBlock(block: ContentBlock) {
+        val board = _currentBoard.value ?: return
+        board.activeLayer.contentBlocks.add(block)
+        _currentBoard.value = board
+        markDirty()
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.saveContentBlock(block)
+        }
+    }
+
+    fun updateContentBlock(block: ContentBlock) {
+        val notebook = _currentNotebook.value ?: return
+        notebook.boards.forEach { board ->
+            board.layers.forEach { layer ->
+                val index = layer.contentBlocks.indexOfFirst { it.id == block.id }
+                if (index >= 0) {
+                    layer.contentBlocks[index] = block
+                }
+            }
+        }
+        _currentBoard.value = _currentBoard.value
+        markDirty()
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.saveContentBlock(block)
+        }
+    }
+
+    fun duplicateContentBlock(blockId: String) {
+        val board = _currentBoard.value ?: return
+        val layer = board.activeLayer
+        val source = layer.contentBlocks.firstOrNull { it.id == blockId } ?: return
+        val duplicate = source.copy(
+            id = java.util.UUID.randomUUID().toString(),
+            posX = source.posX + 36f,
+            posY = source.posY + 36f,
+            zIndex = (layer.contentBlocks.maxOfOrNull { it.zIndex } ?: 0) + 1,
+            createdAt = System.currentTimeMillis(),
+            updatedAt = System.currentTimeMillis()
+        )
+        addContentBlock(duplicate)
+    }
+
+    fun deleteContentBlock(blockId: String) {
+        val notebook = _currentNotebook.value ?: return
+        notebook.boards.forEach { board ->
+            board.layers.forEach { layer ->
+                layer.contentBlocks.removeAll { it.id == blockId }
+                layer.linkEdges.removeAll { it.sourceBlockId == blockId || it.targetBlockId == blockId }
+            }
+        }
+        _currentBoard.value = _currentBoard.value
+        markDirty()
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.deleteContentBlock(blockId)
+        }
+    }
+
+    fun deleteContentBlocks(blockIds: Collection<String>) {
+        if (blockIds.isEmpty()) return
+        blockIds.forEach(::deleteContentBlock)
+    }
+
+    fun bringContentBlockToFront(blockId: String) {
+        val board = _currentBoard.value ?: return
+        val layer = board.activeLayer
+        val index = layer.contentBlocks.indexOfFirst { it.id == blockId }
+        if (index < 0) return
+        val nextZ = (layer.contentBlocks.maxOfOrNull { it.zIndex } ?: 0) + 1
+        updateContentBlock(layer.contentBlocks[index].copy(zIndex = nextZ, updatedAt = System.currentTimeMillis()))
+    }
+
+    fun sendContentBlockToBack(blockId: String) {
+        val board = _currentBoard.value ?: return
+        val layer = board.activeLayer
+        val index = layer.contentBlocks.indexOfFirst { it.id == blockId }
+        if (index < 0) return
+        val prevZ = (layer.contentBlocks.minOfOrNull { it.zIndex } ?: 0) - 1
+        updateContentBlock(layer.contentBlocks[index].copy(zIndex = prevZ, updatedAt = System.currentTimeMillis()))
+    }
+
+    fun addLinkEdge(edge: LinkEdge) {
+        val board = _currentBoard.value ?: return
+        board.activeLayer.linkEdges.removeAll { it.id == edge.id }
+        board.activeLayer.linkEdges.add(edge)
+        _currentBoard.value = board
+        markDirty()
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.saveLinkEdge(edge)
+        }
+    }
+
+    fun updateLinkEdge(edge: LinkEdge) {
+        addLinkEdge(edge)
+    }
+
+    fun deleteLinkEdge(linkId: String) {
+        val board = _currentBoard.value ?: return
+        board.activeLayer.linkEdges.removeAll { it.id == linkId }
+        _currentBoard.value = board
+        markDirty()
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.deleteLinkEdge(linkId)
+        }
+    }
+
+    fun findRelatedBlocks(blockId: String): Pair<List<ContentBlock>, List<ContentBlock>> {
+        val layer = _currentBoard.value?.activeLayer ?: return emptyList<ContentBlock>() to emptyList()
+        val blocksById = layer.contentBlocks.associateBy { it.id }
+        val incoming = layer.linkEdges.filter { it.targetBlockId == blockId }.mapNotNull { blocksById[it.sourceBlockId] }
+        val outgoing = layer.linkEdges.filter { it.sourceBlockId == blockId }.mapNotNull { blocksById[it.targetBlockId] }
+        return incoming to outgoing
+    }
+
+    fun searchBlocks(query: String): List<ContentBlock> {
+        if (query.isBlank()) return emptyList()
+        val normalized = query.lowercase(Locale.getDefault())
+        return _currentNotebook.value?.boards
+            ?.flatMap { it.layers }
+            ?.flatMap { it.contentBlocks }
+            ?.filter { block ->
+                when (val content = block.content) {
+                    is BlockContent.TextNote -> content.text.lowercase(Locale.getDefault()).contains(normalized)
+                    is BlockContent.Markdown -> content.markdown.lowercase(Locale.getDefault()).contains(normalized)
+                    is BlockContent.InteractiveText -> {
+                        content.question.lowercase(Locale.getDefault()).contains(normalized) ||
+                            content.alternatives.any { it.text.lowercase(Locale.getDefault()).contains(normalized) } ||
+                            content.explanation.lowercase(Locale.getDefault()).contains(normalized)
+                    }
+                    is BlockContent.Flashcard -> content.previewText.lowercase(Locale.getDefault()).contains(normalized)
+                    is BlockContent.Image -> content.displayName.lowercase(Locale.getDefault()).contains(normalized)
+                    is BlockContent.Pdf -> content.displayName.lowercase(Locale.getDefault()).contains(normalized)
+                }
+            }
+            ?.sortedByDescending { it.updatedAt }
+            .orEmpty()
     }
 
 

@@ -288,6 +288,21 @@ class InfiniteCanvasView @JvmOverloads constructor(
 
     fun getZoomPercent(): Float = CanvasScale.zoomFactorToPercent(scale)
 
+    fun getTransform(): Triple<Float, Float, Float> = Triple(scale, translateX, translateY)
+
+    fun screenPointToCanvasPoint(x: Float, y: Float): PointF = screenToCanvas(x, y)
+
+    fun centerOnWorldPoint(worldX: Float, worldY: Float) {
+        translateX = width / 2f - worldX * scale
+        translateY = height / 2f - worldY * scale
+        updateMatrix()
+        invalidate()
+    }
+
+    fun getVisibleWorldRect(): RectF {
+        return getVisibleCanvasRect()
+    }
+
     fun setDrawOpacity(opacity: Float) {
         currentOpacity = opacity
     }
