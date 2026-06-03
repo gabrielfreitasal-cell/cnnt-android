@@ -116,6 +116,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var dirty = false
 
     private val app = application as CnntApplication
+    private val compatibilityModeEnabled = MutableStateFlow(false)
 
     init {
         NotebookSnapshot.register {
@@ -133,58 +134,67 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun isCompatibilityModeEnabled(): StateFlow<Boolean> = compatibilityModeEnabled
+
     fun loadOrCreateDefaultNotebook() {
 
         viewModelScope.launch {
+            try {
+                val loaded = withContext(Dispatchers.IO) {
 
-            val loaded = withContext(Dispatchers.IO) {
+                    val lastId = sessionStore.getLastNotebookId()
 
-                val lastId = sessionStore.getLastNotebookId()
+                    when {
 
-                when {
+                        lastId != null -> repository.loadNotebookById(lastId)
 
-                    lastId != null -> repository.loadNotebookById(lastId)
+                            ?: repository.loadMostRecentNotebook()
 
-                        ?: repository.loadMostRecentNotebook()
+                        else -> repository.loadMostRecentNotebook()
 
-                    else -> repository.loadMostRecentNotebook()
-
-                }
-
-            }
-
-
-
-            if (loaded != null) {
-
-                val boardIndex = resolveBoardIndex(loaded)
-
-                _currentNotebook.value = loaded
-
-                _currentBoard.value = loaded.boards.getOrElse(boardIndex) { loaded.activeBoard }
-
-                persistSession()
-
-            } else {
-
-                val notebook = Notebook(name = "Meu Caderno")
-
-                val board = notebook.activeBoard.copy(notebookId = notebook.id)
-
-                notebook.boards[0] = board
-
-                _currentNotebook.value = notebook
-
-                _currentBoard.value = board
-
-                withContext(Dispatchers.IO) {
-
-                    repository.saveNotebook(notebook)
+                    }
 
                 }
 
-                persistSession()
+                if (loaded != null) {
 
+                    val boardIndex = resolveBoardIndex(loaded)
+
+                    _currentNotebook.value = loaded
+
+                    _currentBoard.value = loaded.boards.getOrElse(boardIndex) { loaded.activeBoard }
+
+                    persistSession()
+
+                } else {
+
+                    val notebook = Notebook(name = "Meu Caderno")
+
+                    val board = notebook.activeBoard.copy(notebookId = notebook.id)
+
+                    notebook.boards[0] = board
+
+                    _currentNotebook.value = notebook
+
+                    _currentBoard.value = board
+
+                    withContext(Dispatchers.IO) {
+
+                        repository.saveNotebook(notebook)
+
+                    }
+
+                    persistSession()
+
+                }
+            } catch (exception: Exception) {
+                android.util.Log.e("CNNT", "Bootstrap notebook failed, enabling compatibility mode", exception)
+                compatibilityModeEnabled.value = true
+                val fallbackNotebook = Notebook(name = "Modo seguro")
+                val fallbackBoard = fallbackNotebook.activeBoard.copy(notebookId = fallbackNotebook.id, name = "Recuperação")
+                fallbackNotebook.boards[0] = fallbackBoard
+                _currentNotebook.value = fallbackNotebook
+                _currentBoard.value = fallbackBoard
             }
 
             startAutoSave()
@@ -196,8 +206,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun observeFlashcards() {
         viewModelScope.launch {
-            repository.getAllFlashcards().collectLatest { cards ->
-                _flashcards.value = cards
+            try {
+                repository.getAllFlashcards().collectLatest { cards ->
+                    _flashcards.value = cards
+                }
+            } catch (exception: Exception) {
+                android.util.Log.e("CNNT", "Flashcard observer failed", exception)
+                _flashcards.value = emptyList()
             }
         }
     }
@@ -747,6 +762,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         try {
 
+            if (compatibilityModeEnabled.value) return
             if (!force && !dirty) return
 
             val notebook = _currentNotebook.value ?: return

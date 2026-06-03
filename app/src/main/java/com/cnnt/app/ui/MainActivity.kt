@@ -72,34 +72,36 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener, Blo
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        binding = ActivityMainBinding.inflate(layoutInflater)
-        setContentView(binding.root)
+        try {
+            binding = ActivityMainBinding.inflate(layoutInflater)
+            setContentView(binding.root)
 
-        viewModel = ViewModelProvider(this, MainViewModelFactory(application))
-            .get(MainViewModel::class.java)
+            viewModel = ViewModelProvider(this, MainViewModelFactory(application))
+                .get(MainViewModel::class.java)
 
-        setupImmersiveMode()
-        setupCanvas()
-        setupToolbar()
-        setupSidebar()
-        setupBlockOverlays()
-        setupObservers()
-        setupQuickActions()
-        setupDebugOverlay()
+            setupImmersiveMode()
+            setupCanvas()
+            setupToolbar()
+            setupSidebar()
+            setupBlockOverlays()
+            setupObservers()
+            setupQuickActions()
+            setupDebugOverlay()
 
-        // Load or create default notebook
-        viewModel.loadOrCreateDefaultNotebook()
+            viewModel.loadOrCreateDefaultNotebook()
 
-        // Initialize handwriting recognition
-        handwritingRecognizer = HandwritingRecognizer(this)
-        handwritingRecognizer.initialize("pt-BR") { ready ->
-            handwritingReady = ready
-            if (!ready) {
-                // Try English as fallback
-                handwritingRecognizer.initialize("en-US") { fallbackReady ->
-                    handwritingReady = fallbackReady
+            handwritingRecognizer = HandwritingRecognizer(this)
+            handwritingRecognizer.initialize("pt-BR") { ready ->
+                handwritingReady = ready
+                if (!ready) {
+                    handwritingRecognizer.initialize("en-US") { fallbackReady ->
+                        handwritingReady = fallbackReady
+                    }
                 }
             }
+        } catch (exception: Exception) {
+            android.util.Log.e("CNNT", "Fatal startup failure", exception)
+            showStartupRecoveryScreen(exception)
         }
     }
 
@@ -646,7 +648,9 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener, Blo
 
     override fun onDestroy() {
         super.onDestroy()
-        handwritingRecognizer.close()
+        if (::handwritingRecognizer.isInitialized) {
+            handwritingRecognizer.close()
+        }
         handwritingTimers.values.forEach { it.removeCallbacksAndMessages(null) }
     }
 
@@ -684,6 +688,34 @@ class MainActivity : AppCompatActivity(), InfiniteCanvasView.CanvasListener, Blo
         private const val MENU_LASSO_RECTANGLE = 1003
         private const val REQUEST_PICK_IMAGE = 5101
         private const val REQUEST_PICK_PDF = 5102
+    }
+
+    private fun showStartupRecoveryScreen(exception: Exception) {
+        val container = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setBackgroundColor(android.graphics.Color.parseColor("#141414"))
+            setPadding(48, 64, 48, 64)
+        }
+        val title = android.widget.TextView(this).apply {
+            text = "CNNT entrou em modo de recuperação"
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 20f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }
+        val message = android.widget.TextView(this).apply {
+            text = "O app encontrou um erro no boot e evitou fechar sozinho.\n\nDetalhe: ${exception.javaClass.simpleName}"
+            setTextColor(android.graphics.Color.parseColor("#D6E7FF"))
+            textSize = 14f
+            setPadding(0, 24, 0, 24)
+        }
+        val button = android.widget.Button(this).apply {
+            text = "Fechar"
+            setOnClickListener { finish() }
+        }
+        container.addView(title)
+        container.addView(message)
+        container.addView(button)
+        setContentView(container)
     }
 
     private fun renderBlocksAndLinks() {
