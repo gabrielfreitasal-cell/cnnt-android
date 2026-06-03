@@ -5,15 +5,17 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.view.HapticFeedbackConstants
-import android.view.MotionEvent
-import android.view.View
 import android.content.Context
+import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.GravityCompat
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.cnnt.app.data.model.BlockType
 import com.cnnt.app.data.model.Board
-import com.cnnt.app.data.model.SpatialObjectType
 import com.cnnt.app.databinding.ActivityMainBinding
+import com.cnnt.app.ui.block.BlockSidebarAdapter
+import com.cnnt.app.ui.block.SidebarBlockCatalog
+import com.cnnt.app.ui.block.SidebarBlockType
 
 class SidebarManager(
     private val binding: ActivityMainBinding,
@@ -21,11 +23,15 @@ class SidebarManager(
 ) {
     var onPageSelected: ((Int) -> Unit)? = null
     var onNewPageClicked: (() -> Unit)? = null
-    var onInsertBlockClicked: ((SpatialObjectType) -> Unit)? = null
+    var onInsertBlockClicked: ((BlockType) -> Unit)? = null
     var onInsertHandwritingBlock: (() -> Unit)? = null
 
     private val pageAdapter = PageListAdapter { index ->
         onPageSelected?.invoke(index)
+    }
+    private val blockAdapter = BlockSidebarAdapter(SidebarBlockCatalog.items) { block ->
+        onInsertBlockClicked?.invoke(block.type)
+        closeSidebar()
     }
 
     init {
@@ -52,6 +58,8 @@ class SidebarManager(
         binding.btnAddPage.setOnClickListener {
             onNewPageClicked?.invoke()
         }
+        binding.contentPanelList.layoutManager = LinearLayoutManager(activity)
+        binding.contentPanelList.adapter = blockAdapter
     }
 
     fun updatePages(boards: List<Board>, activeIndex: Int) {
@@ -71,37 +79,11 @@ class SidebarManager(
     }
 
     private fun setupBlockInserts() {
-        binding.btnInsertText.setOnClickListener {
-            onInsertBlockClicked?.invoke(SpatialObjectType.TEXT)
-            closeSidebar()
-        }
-        binding.btnInsertChecklist.setOnClickListener {
-            onInsertBlockClicked?.invoke(SpatialObjectType.CHECKLIST)
-            closeSidebar()
-        }
-        binding.btnInsertImage.setOnClickListener {
-            onInsertBlockClicked?.invoke(SpatialObjectType.IMAGE)
-            closeSidebar()
-        }
-        binding.btnInsertPdf.setOnClickListener {
-            onInsertBlockClicked?.invoke(SpatialObjectType.PDF)
-            closeSidebar()
-        }
-        binding.btnInsertLink.setOnClickListener {
-            onInsertBlockClicked?.invoke(SpatialObjectType.LINK)
-            closeSidebar()
-        }
-
-        // Handwriting block with haptic feedback on long press
-        binding.btnInsertHandwriting.setOnLongClickListener { view ->
+        binding.contentPanelEmptyState.setOnLongClickListener { view ->
             triggerHapticFeedback(view)
             onInsertHandwritingBlock?.invoke()
             closeSidebar()
             true
-        }
-        binding.btnInsertHandwriting.setOnClickListener {
-            onInsertHandwritingBlock?.invoke()
-            closeSidebar()
         }
     }
 

@@ -37,6 +37,26 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent" />
 
+        <com.cnnt.app.ui.block.BlocksOverlayLayout
+            android:id="@+id/blocksOverlay"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <com.cnnt.app.ui.block.LinksOverlayView
+            android:id="@+id/linksOverlay"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
         <!-- Top Header Bar (Glass) -->
         <LinearLayout
             android:id="@+id/topHeaderBar"
@@ -115,6 +135,17 @@
                 android:scaleType="centerInside"
                 android:padding="6dp"
                 android:contentDescription="OCR"
+                app:tint="#AAAAAA" />
+
+            <ImageButton
+                android:id="@+id/btnSearchBlocks"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@android:drawable/ic_menu_search"
+                android:background="@android:color/transparent"
+                android:scaleType="centerInside"
+                android:padding="6dp"
+                android:contentDescription="Buscar blocos"
                 app:tint="#AAAAAA" />
 
             <!-- Export/Share -->
@@ -263,6 +294,50 @@
                     android:contentDescription="Modo Foco"
                     android:layout_marginEnd="4dp" />
 
+                <ImageButton
+                    android:id="@+id/btnLinkMode"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:src="@android:drawable/ic_menu_share"
+                    android:background="@drawable/btn_tool"
+                    android:scaleType="centerInside"
+                    android:padding="7dp"
+                    android:contentDescription="Modo ligação"
+                    android:layout_marginEnd="4dp" />
+
+                <ImageButton
+                    android:id="@+id/btnCenterCanvas"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:src="@android:drawable/ic_menu_mylocation"
+                    android:background="@drawable/btn_tool"
+                    android:scaleType="centerInside"
+                    android:padding="7dp"
+                    android:contentDescription="Centralizar"
+                    android:layout_marginEnd="4dp" />
+
+                <ImageButton
+                    android:id="@+id/btnFitAll"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:src="@android:drawable/ic_menu_crop"
+                    android:background="@drawable/btn_tool"
+                    android:scaleType="centerInside"
+                    android:padding="7dp"
+                    android:contentDescription="Fit all"
+                    android:layout_marginEnd="4dp" />
+
+                <ImageButton
+                    android:id="@+id/btnToggleMiniMap"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:src="@android:drawable/ic_menu_mapmode"
+                    android:background="@drawable/btn_tool"
+                    android:scaleType="centerInside"
+                    android:padding="7dp"
+                    android:contentDescription="Mini mapa"
+                    android:layout_marginEnd="4dp" />
+
                 <!-- Brush Settings -->
                 <ImageButton
                     android:id="@+id/btnBrushSettings"
@@ -289,6 +364,50 @@
 
             </LinearLayout>
         </HorizontalScrollView>
+
+        <LinearLayout
+            android:id="@+id/backlinksPanel"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="12dp"
+            android:layout_marginBottom="16dp"
+            android:background="@drawable/bg_glass_toolbar"
+            android:elevation="5dp"
+            android:orientation="vertical"
+            android:padding="12dp"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
+
+            <TextView
+                android:id="@+id/backlinksTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Relações do bloco"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/backlinksContent"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:textColor="#D6E7FF"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <com.cnnt.app.ui.block.MiniMapView
+            android:id="@+id/miniMapView"
+            android:layout_width="140dp"
+            android:layout_height="110dp"
+            android:layout_marginEnd="14dp"
+            android:layout_marginBottom="88dp"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
 
     </androidx.constraintlayout.widget.ConstraintLayout>
 
@@ -494,96 +613,30 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Insert Block"
+                android:text="Painel de conteúdo"
                 android:textSize="12sp"
                 android:textColor="#666666"
                 android:textStyle="bold"
                 android:layout_marginStart="14dp"
                 android:layout_marginBottom="8dp" />
 
-            <Button
-                android:id="@+id/btnInsertText"
+            <TextView
+                android:id="@+id/contentPanelEmptyState"
                 android:layout_width="match_parent"
-                android:layout_height="38dp"
-                android:text="   Text"
-                android:textSize="13sp"
-                android:textColor="#CCCCCC"
+                android:layout_height="wrap_content"
+                android:padding="14dp"
+                android:text="Pressione e arraste um tipo de bloco para o canvas."
+                android:textColor="#88FFFFFF"
+                android:textSize="12sp"
                 android:background="@drawable/bg_sidebar_item"
-                android:layout_marginBottom="3dp"
-                android:gravity="start|center_vertical"
-                android:paddingStart="14dp"
-                android:drawableStart="@drawable/ic_ocr"
-                android:drawablePadding="10dp" />
+                android:layout_marginBottom="8dp" />
 
-            <Button
-                android:id="@+id/btnInsertChecklist"
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/contentPanelList"
                 android:layout_width="match_parent"
-                android:layout_height="38dp"
-                android:text="   Checklist"
-                android:textSize="13sp"
-                android:textColor="#CCCCCC"
-                android:background="@drawable/bg_sidebar_item"
-                android:layout_marginBottom="3dp"
-                android:gravity="start|center_vertical"
-                android:paddingStart="14dp"
-                android:drawableStart="@drawable/ic_select"
-                android:drawablePadding="10dp" />
-
-            <Button
-                android:id="@+id/btnInsertImage"
-                android:layout_width="match_parent"
-                android:layout_height="38dp"
-                android:text="   Image"
-                android:textSize="13sp"
-                android:textColor="#CCCCCC"
-                android:background="@drawable/bg_sidebar_item"
-                android:layout_marginBottom="3dp"
-                android:gravity="start|center_vertical"
-                android:paddingStart="14dp"
-                android:drawableStart="@drawable/ic_export"
-                android:drawablePadding="10dp" />
-
-            <Button
-                android:id="@+id/btnInsertPdf"
-                android:layout_width="match_parent"
-                android:layout_height="38dp"
-                android:text="   PDF"
-                android:textSize="13sp"
-                android:textColor="#CCCCCC"
-                android:background="@drawable/bg_sidebar_item"
-                android:layout_marginBottom="3dp"
-                android:gravity="start|center_vertical"
-                android:paddingStart="14dp"
-                android:drawableStart="@drawable/ic_flashcard"
-                android:drawablePadding="10dp" />
-
-            <Button
-                android:id="@+id/btnInsertLink"
-                android:layout_width="match_parent"
-                android:layout_height="38dp"
-                android:text="   Link"
-                android:textSize="13sp"
-                android:textColor="#CCCCCC"
-                android:background="@drawable/bg_sidebar_item"
-                android:layout_marginBottom="3dp"
-                android:gravity="start|center_vertical"
-                android:paddingStart="14dp"
-                android:drawableStart="@drawable/ic_lasso"
-                android:drawablePadding="10dp" />
-
-            <Button
-                android:id="@+id/btnInsertHandwriting"
-                android:layout_width="match_parent"
-                android:layout_height="38dp"
-                android:text="   Handwriting Block"
-                android:textSize="13sp"
-                android:textColor="#CCCCCC"
-                android:background="@drawable/bg_sidebar_item"
-                android:layout_marginBottom="3dp"
-                android:gravity="start|center_vertical"
-                android:paddingStart="14dp"
-                android:drawableStart="@drawable/ic_brush"
-                android:drawablePadding="10dp" />
+                android:layout_height="wrap_content"
+                android:nestedScrollingEnabled="false"
+                android:minHeight="160dp" />
 
         </LinearLayout>
     </ScrollView>
