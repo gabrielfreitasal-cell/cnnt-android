@@ -32,6 +32,10 @@ class ToolbarManager(
     var onFlashcardClicked: (() -> Unit)? = null
     var onBrushSettingsChanged: ((BrushPreset) -> Unit)? = null
     var onDeleteSelectionClicked: (() -> Unit)? = null
+    var onLinkModeToggled: (() -> Unit)? = null
+    var onCenterCanvasClicked: (() -> Unit)? = null
+    var onFitAllClicked: (() -> Unit)? = null
+    var onMiniMapToggled: (() -> Unit)? = null
 
     private var currentBrush: BrushPreset = BrushPreset.gelPen()
     private var currentColor: Int = Color.WHITE
@@ -116,6 +120,22 @@ class ToolbarManager(
 
         binding.btnDeleteSelection.setOnClickListener {
             onDeleteSelectionClicked?.invoke()
+        }
+
+        binding.btnLinkMode.setOnClickListener {
+            onLinkModeToggled?.invoke()
+        }
+
+        binding.btnCenterCanvas.setOnClickListener {
+            onCenterCanvasClicked?.invoke()
+        }
+
+        binding.btnFitAll.setOnClickListener {
+            onFitAllClicked?.invoke()
+        }
+
+        binding.btnToggleMiniMap.setOnClickListener {
+            onMiniMapToggled?.invoke()
         }
     }
 
