@@ -12,5 +12,7 @@ data class Layer(
     val opacity: Float = 1.0f,
     val order: Int = 0,
     val strokes: MutableList<Stroke> = CopyOnWriteArrayList(),
-    val objects: MutableList<SpatialObject> = CopyOnWriteArrayList()
+    val objects: MutableList<SpatialObject> = CopyOnWriteArrayList(),
+    val contentBlocks: MutableList<ContentBlock> = CopyOnWriteArrayList(),
+    val linkEdges: MutableList<LinkEdge> = CopyOnWriteArrayList()
 )

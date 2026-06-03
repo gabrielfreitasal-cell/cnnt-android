@@ -140,3 +140,64 @@ data class BrushPresetEntity(
     val category: String,
     val configJson: String
 )
+
+@Entity(
+    tableName = "content_blocks",
+    foreignKeys = [
+        ForeignKey(
+            entity = NotebookEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["notebookId"],
+            onDelete = ForeignKey.CASCADE
+        ),
+        ForeignKey(
+            entity = LayerEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["layerId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("notebookId"), Index("layerId")]
+)
+data class ContentBlockEntity(
+    @PrimaryKey val id: String,
+    val type: String,
+    val posX: Float,
+    val posY: Float,
+    val width: Float,
+    val height: Float,
+    val rotation: Float,
+    val zIndex: Int,
+    val contentJson: String,
+    val notebookId: String,
+    val layerId: String,
+    val createdAt: Long,
+    val updatedAt: Long
+)
+
+@Entity(
+    tableName = "link_edges",
+    foreignKeys = [
+        ForeignKey(
+            entity = ContentBlockEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["sourceBlockId"],
+            onDelete = ForeignKey.CASCADE
+        ),
+        ForeignKey(
+            entity = ContentBlockEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["targetBlockId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("sourceBlockId"), Index("targetBlockId")]
+)
+data class LinkEdgeEntity(
+    @PrimaryKey val id: String,
+    val sourceBlockId: String,
+    val targetBlockId: String,
+    val label: String,
+    val style: String,
+    val createdAt: Long
+)

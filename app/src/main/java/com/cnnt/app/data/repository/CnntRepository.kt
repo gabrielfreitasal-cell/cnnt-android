@@ -17,6 +17,8 @@ class CnntRepository(private val database: CnntDatabase) {
     private val strokeDao = database.strokeDao()
     private val spatialObjectDao = database.spatialObjectDao()
     private val flashcardDao = database.flashcardDao()
+    private val contentBlockDao = database.contentBlockDao()
+    private val linkEdgeDao = database.linkEdgeDao()
 
     // --- Notebooks ---
 
@@ -31,6 +33,21 @@ class CnntRepository(private val database: CnntDatabase) {
     suspend fun getAllStrokeEntities(): List<StrokeEntity> = strokeDao.getAllStrokesSync()
 
     suspend fun getAllSpatialObjectEntities(): List<SpatialObjectEntity> = spatialObjectDao.getAllObjectsSync()
+
+    suspend fun getAllContentBlockEntities(): List<ContentBlockEntity> {
+        val notebooks = notebookDao.getAllNotebooksSync()
+        return notebooks.flatMap { contentBlockDao.getBlocksForNotebookSync(it.id) }
+    }
+
+    suspend fun getAllLinkEdgeEntities(): List<LinkEdgeEntity> {
+        val notebooks = notebookDao.getAllNotebooksSync()
+        return notebooks.flatMap { notebook ->
+            val layers = boardDao.getBoardsForNotebookSync(notebook.id).flatMap { board ->
+                boardDao.getLayersForBoard(board.id)
+            }
+            layers.flatMap { layer -> linkEdgeDao.getLinksForLayerSync(layer.id) }
+        }.distinctBy { it.id }
+    }
 
     suspend fun saveNotebook(notebook: Notebook) {
         saveNotebookMetadata(notebook)
@@ -104,6 +121,8 @@ class CnntRepository(private val database: CnntDatabase) {
         ))
         syncLayerStrokes(layer)
         syncLayerObjects(layer)
+        syncLayerBlocks(layer, boardId)
+        syncLayerLinks(layer)
     }
 
     /** Keeps Room strokes identical to in-memory layer (fixes erases / undo drift). */
@@ -134,6 +153,28 @@ class CnntRepository(private val database: CnntDatabase) {
                 layer.id
             )
         }
+    }
+
+    private suspend fun syncLayerBlocks(layer: Layer, boardId: String) {
+        val notebookId = boardDao.getBoardById(boardId)?.notebookId.orEmpty()
+        contentBlockDao.getBlocksForLayerSync(layer.id).forEach { existing ->
+            contentBlockDao.deleteById(existing.id)
+        }
+        if (layer.contentBlocks.isEmpty()) return
+        contentBlockDao.insertAll(layer.contentBlocks.map { block ->
+            block.toEntity(
+                notebookId = if (block.notebookId.isNotBlank()) block.notebookId else notebookId,
+                layerId = if (block.layerId.isNotBlank()) block.layerId else layer.id
+            )
+        })
+    }
+
+    private suspend fun syncLayerLinks(layer: Layer) {
+        linkEdgeDao.getLinksForLayerSync(layer.id).forEach { existing ->
+            linkEdgeDao.deleteById(existing.id)
+        }
+        if (layer.linkEdges.isEmpty()) return
+        linkEdgeDao.insertAll(layer.linkEdges.map(::linkToEntity))
     }
 
     suspend fun saveStroke(stroke: Stroke, layerId: String) {
@@ -173,6 +214,8 @@ class CnntRepository(private val database: CnntDatabase) {
             val objects = spatialObjectDao.getObjectsForLayer(layerEntity.id).map { objEntity ->
                 deserializeSpatialObject(objEntity)
             }
+            val blocks = contentBlockDao.getBlocksForLayerSync(layerEntity.id).map(::deserializeContentBlock)
+            val links = linkEdgeDao.getLinksForLayerSync(layerEntity.id).map(::deserializeLinkEdge)
             Layer(
                 id = layerEntity.id,
                 name = layerEntity.name,
@@ -182,7 +225,9 @@ class CnntRepository(private val database: CnntDatabase) {
                 opacity = layerEntity.opacity,
                 order = layerEntity.order,
                 strokes = strokes.toMutableList(),
-                objects = objects.toMutableList()
+                objects = objects.toMutableList(),
+                contentBlocks = blocks.toMutableList(),
+                linkEdges = links.toMutableList()
             )
         }
         val normalizedLayers = layers.map { layer ->
@@ -226,6 +271,28 @@ class CnntRepository(private val database: CnntDatabase) {
 
     suspend fun deleteSpatialObject(objId: String) {
         spatialObjectDao.deleteById(objId)
+    }
+
+    fun observeContentBlocks(layerId: String): Flow<List<ContentBlock>> =
+        contentBlockDao.observeBlocksForLayer(layerId).map { list -> list.map(::deserializeContentBlock) }
+
+    fun observeLinkEdges(layerId: String): Flow<List<LinkEdge>> =
+        linkEdgeDao.observeLinksForLayer(layerId).map { list -> list.map(::deserializeLinkEdge) }
+
+    suspend fun saveContentBlock(block: ContentBlock) {
+        contentBlockDao.insert(block.toEntity(block.notebookId, block.layerId))
+    }
+
+    suspend fun deleteContentBlock(blockId: String) {
+        contentBlockDao.deleteById(blockId)
+    }
+
+    suspend fun saveLinkEdge(edge: LinkEdge) {
+        linkEdgeDao.insert(linkToEntity(edge))
+    }
+
+    suspend fun deleteLinkEdge(linkId: String) {
+        linkEdgeDao.deleteById(linkId)
     }
 
     // --- Flashcards ---
@@ -349,5 +416,89 @@ class CnntRepository(private val database: CnntDatabase) {
         } catch (e: Exception) {
             ObjectContent.Empty
         }
+    }
+
+    private fun deserializeContentBlock(entity: ContentBlockEntity): ContentBlock {
+        val content = try {
+            when (BlockType.fromKey(entity.type)) {
+                BlockType.Image -> gson.fromJson(entity.contentJson, BlockContent.Image::class.java)
+                BlockType.Markdown -> gson.fromJson(entity.contentJson, BlockContent.Markdown::class.java)
+                BlockType.Flashcard -> gson.fromJson(entity.contentJson, BlockContent.Flashcard::class.java)
+                BlockType.InteractiveText -> gson.fromJson(entity.contentJson, BlockContent.InteractiveText::class.java)
+                BlockType.Pdf -> gson.fromJson(entity.contentJson, BlockContent.Pdf::class.java)
+                BlockType.Text -> gson.fromJson(entity.contentJson, BlockContent.TextNote::class.java)
+            }
+        } catch (_: Exception) {
+            BlockContent.TextNote()
+        }
+        return ContentBlock(
+            id = entity.id,
+            type = BlockType.fromKey(entity.type),
+            posX = entity.posX,
+            posY = entity.posY,
+            width = entity.width,
+            height = entity.height,
+            rotation = entity.rotation,
+            zIndex = entity.zIndex,
+            contentJson = entity.contentJson,
+            notebookId = entity.notebookId,
+            layerId = entity.layerId,
+            content = content,
+            createdAt = entity.createdAt,
+            updatedAt = entity.updatedAt
+        )
+    }
+
+    private fun deserializeLinkEdge(entity: LinkEdgeEntity): LinkEdge {
+        val style = try {
+            gson.fromJson(entity.style, LinkStyle::class.java) ?: LinkStyle()
+        } catch (_: Exception) {
+            LinkStyle()
+        }
+        return LinkEdge(
+            id = entity.id,
+            sourceBlockId = entity.sourceBlockId,
+            targetBlockId = entity.targetBlockId,
+            label = entity.label,
+            style = style,
+            createdAt = entity.createdAt
+        )
+    }
+
+    private fun ContentBlock.toEntity(notebookId: String, layerId: String): ContentBlockEntity {
+        val serializedContent = when (content) {
+            is BlockContent.Image -> gson.toJson(content)
+            is BlockContent.Markdown -> gson.toJson(content)
+            is BlockContent.Flashcard -> gson.toJson(content)
+            is BlockContent.InteractiveText -> gson.toJson(content)
+            is BlockContent.Pdf -> gson.toJson(content)
+            is BlockContent.TextNote -> gson.toJson(content)
+        }
+        return ContentBlockEntity(
+            id = id,
+            type = type.key,
+            posX = posX,
+            posY = posY,
+            width = width,
+            height = height,
+            rotation = rotation,
+            zIndex = zIndex,
+            contentJson = serializedContent,
+            notebookId = notebookId,
+            layerId = layerId,
+            createdAt = createdAt,
+            updatedAt = updatedAt
+        )
+    }
+
+    private fun linkToEntity(edge: LinkEdge): LinkEdgeEntity {
+        return LinkEdgeEntity(
+            id = edge.id,
+            sourceBlockId = edge.sourceBlockId,
+            targetBlockId = edge.targetBlockId,
+            label = edge.label,
+            style = gson.toJson(edge.style),
+            createdAt = edge.createdAt
+        )
     }
 }

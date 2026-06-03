@@ -134,3 +134,65 @@ interface FlashcardDao {
     @Query("SELECT * FROM flashcards WHERE tags LIKE '%' || :tag || '%'")
     fun getFlashcardsByTag(tag: String): Flow<List<FlashcardEntity>>
 }
+
+@Dao
+interface ContentBlockDao {
+    @Query("SELECT * FROM content_blocks WHERE layerId = :layerId ORDER BY zIndex ASC, updatedAt ASC")
+    fun observeBlocksForLayer(layerId: String): Flow<List<ContentBlockEntity>>
+
+    @Query("SELECT * FROM content_blocks WHERE notebookId = :notebookId ORDER BY updatedAt DESC")
+    fun observeBlocksForNotebook(notebookId: String): Flow<List<ContentBlockEntity>>
+
+    @Query("SELECT * FROM content_blocks WHERE notebookId = :notebookId ORDER BY updatedAt DESC")
+    suspend fun getBlocksForNotebookSync(notebookId: String): List<ContentBlockEntity>
+
+    @Query("SELECT * FROM content_blocks WHERE layerId = :layerId ORDER BY zIndex ASC, updatedAt ASC")
+    suspend fun getBlocksForLayerSync(layerId: String): List<ContentBlockEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(block: ContentBlockEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(blocks: List<ContentBlockEntity>)
+
+    @Query("DELETE FROM content_blocks WHERE id = :id")
+    suspend fun deleteById(id: String)
+}
+
+@Dao
+interface LinkEdgeDao {
+    @Query(
+        "SELECT le.* FROM link_edges le " +
+            "INNER JOIN content_blocks sb ON sb.id = le.sourceBlockId " +
+            "INNER JOIN content_blocks tb ON tb.id = le.targetBlockId " +
+            "WHERE sb.layerId = :layerId OR tb.layerId = :layerId " +
+            "ORDER BY le.createdAt ASC"
+    )
+    fun observeLinksForLayer(layerId: String): Flow<List<LinkEdgeEntity>>
+
+    @Query(
+        "SELECT le.* FROM link_edges le " +
+            "INNER JOIN content_blocks sb ON sb.id = le.sourceBlockId " +
+            "WHERE sb.notebookId = :notebookId " +
+            "ORDER BY le.createdAt ASC"
+    )
+    fun observeLinksForNotebook(notebookId: String): Flow<List<LinkEdgeEntity>>
+
+    @Query(
+        "SELECT le.* FROM link_edges le " +
+            "INNER JOIN content_blocks sb ON sb.id = le.sourceBlockId " +
+            "INNER JOIN content_blocks tb ON tb.id = le.targetBlockId " +
+            "WHERE sb.layerId = :layerId OR tb.layerId = :layerId " +
+            "ORDER BY le.createdAt ASC"
+    )
+    suspend fun getLinksForLayerSync(layerId: String): List<LinkEdgeEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(edge: LinkEdgeEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(edges: List<LinkEdgeEntity>)
+
+    @Query("DELETE FROM link_edges WHERE id = :id")
+    suspend fun deleteById(id: String)
+}
