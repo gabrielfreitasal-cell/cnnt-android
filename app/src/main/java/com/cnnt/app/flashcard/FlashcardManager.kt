@@ -6,7 +6,7 @@ import com.cnnt.app.data.model.ReviewEntry
 import com.cnnt.app.data.model.ReviewResult
 
 class FlashcardManager {
-    private val clozeRegex = Regex("\\{\\{c([12])::(.+?)}}")
+    private val clozeRegex = Regex("\\{\\{c([12])::(.+?)\\}\\}")
 
     fun createFlashcard(front: String, back: String, tags: List<String> = emptyList()): Flashcard {
         return createBasicFlashcard(front, back, tags)

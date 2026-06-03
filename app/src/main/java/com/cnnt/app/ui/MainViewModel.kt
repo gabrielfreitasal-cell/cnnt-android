@@ -480,9 +480,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val blockId = flashcard.linkedRegionId ?: return
         val notebook = _currentNotebook.value ?: return
         val isCloze = flashcard.tags.any { it.equals("type:cloze", ignoreCase = true) } ||
-            Regex("\\{\\{c[12]::.+?}}").containsMatchIn(flashcard.front)
+            Regex("\\{\\{c[12]::.+?\\}\\}").containsMatchIn(flashcard.front)
         val preview = if (isCloze) {
-            flashcard.front.replace(Regex("\\{\\{c[12]::(.*?)}}"), "[____]")
+            flashcard.front.replace(Regex("\\{\\{c[12]::(.*?)\\}\\}"), "[____]")
         } else {
             flashcard.front
         }.trim().ifBlank { "Novo flashcard" }
