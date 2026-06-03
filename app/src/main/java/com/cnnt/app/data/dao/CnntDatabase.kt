@@ -1,12 +1,14 @@
 package com.cnnt.app.data.dao
 
 import android.content.Context
+import android.util.Log
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import java.io.File
 
 @Database(
     entities = [
@@ -100,14 +102,13 @@ abstract class CnntDatabase : RoomDatabase() {
                         so.rotation,
                         so.zIndex,
                         so.contentJson,
-                        COALESCE(
-                            (SELECT b.notebookId FROM boards b INNER JOIN layers l ON l.boardId = b.id WHERE l.id = so.layerId LIMIT 1),
-                            ''
-                        ),
+                        b.notebookId,
                         so.layerId,
                         so.createdAt,
                         so.updatedAt
                     FROM spatial_objects so
+                    INNER JOIN layers l ON l.id = so.layerId
+                    INNER JOIN boards b ON b.id = l.boardId
                     WHERE so.type IN ('TEXT', 'IMAGE', 'PDF')
                     """.trimIndent()
                 )
@@ -136,7 +137,7 @@ abstract class CnntDatabase : RoomDatabase() {
                             '","noteType":"' ||
                             CASE WHEN lower(f.tags) LIKE '%type:cloze%' THEN 'cloze' ELSE 'basic' END ||
                             '"}',
-                        COALESCE(
+                        NULLIF(COALESCE(
                             (SELECT b.notebookId FROM boards b WHERE b.id = f.boardId LIMIT 1),
                             (SELECT b2.notebookId
                                FROM boards b2
@@ -145,16 +146,32 @@ abstract class CnntDatabase : RoomDatabase() {
                                LIMIT 1),
                             (SELECT notebookId FROM boards ORDER BY createdAt ASC LIMIT 1),
                             ''
-                        ),
-                        COALESCE(
+                        ), ''),
+                        NULLIF(COALESCE(
                             (SELECT so.layerId FROM spatial_objects so WHERE so.id = f.linkedRegionId LIMIT 1),
                             (SELECT l.id FROM layers l INNER JOIN boards b ON b.id = l.boardId WHERE b.id = f.boardId ORDER BY l.`order` ASC LIMIT 1),
                             (SELECT id FROM layers ORDER BY `order` ASC LIMIT 1),
                             ''
-                        ),
+                        ), ''),
                         f.createdAt,
                         f.createdAt
                     FROM flashcards f
+                    WHERE NULLIF(COALESCE(
+                        (SELECT so.layerId FROM spatial_objects so WHERE so.id = f.linkedRegionId LIMIT 1),
+                        (SELECT l.id FROM layers l INNER JOIN boards b ON b.id = l.boardId WHERE b.id = f.boardId ORDER BY l.`order` ASC LIMIT 1),
+                        (SELECT id FROM layers ORDER BY `order` ASC LIMIT 1),
+                        ''
+                    ), '') IS NOT NULL
+                    AND NULLIF(COALESCE(
+                        (SELECT b.notebookId FROM boards b WHERE b.id = f.boardId LIMIT 1),
+                        (SELECT b2.notebookId
+                           FROM boards b2
+                           INNER JOIN layers l2 ON l2.boardId = b2.id
+                           WHERE l2.id = (SELECT so.layerId FROM spatial_objects so WHERE so.id = f.linkedRegionId LIMIT 1)
+                           LIMIT 1),
+                        (SELECT notebookId FROM boards ORDER BY createdAt ASC LIMIT 1),
+                        ''
+                    ), '') IS NOT NULL
                     """.trimIndent()
                 )
             }
@@ -162,15 +179,45 @@ abstract class CnntDatabase : RoomDatabase() {
 
         fun getDatabase(context: Context): CnntDatabase {
             return INSTANCE ?: synchronized(this) {
-                val instance = Room.databaseBuilder(
-                    context.applicationContext,
-                    CnntDatabase::class.java,
-                    "cnnt_database"
-                )
-                    .addMigrations(MIGRATION_1_2)
-                    .build()
+                var instance = buildDatabase(context, destructiveFallback = false)
+                try {
+                    instance.openHelper.writableDatabase
+                } catch (exception: Exception) {
+                    Log.e("CNNT", "Database open failed, attempting safe recovery", exception)
+                    instance.close()
+                    backupDatabaseFiles(context)
+                    context.deleteDatabase("cnnt_database")
+                    instance = buildDatabase(context, destructiveFallback = true)
+                    instance.openHelper.writableDatabase
+                }
                 INSTANCE = instance
                 instance
+            }
+        }
+
+        private fun buildDatabase(context: Context, destructiveFallback: Boolean): CnntDatabase {
+            return Room.databaseBuilder(
+                context.applicationContext,
+                CnntDatabase::class.java,
+                "cnnt_database"
+            ).apply {
+                if (destructiveFallback) {
+                    fallbackToDestructiveMigration()
+                } else {
+                    addMigrations(MIGRATION_1_2)
+                }
+            }.build()
+        }
+
+        private fun backupDatabaseFiles(context: Context) {
+            val databaseDir = context.getDatabasePath("cnnt_database").parentFile ?: return
+            val backupDir = File(context.filesDir, "db_recovery").apply { mkdirs() }
+            val timestamp = System.currentTimeMillis()
+            listOf("cnnt_database", "cnnt_database-wal", "cnnt_database-shm").forEach { name ->
+                val source = File(databaseDir, name)
+                if (!source.exists()) return@forEach
+                val target = File(backupDir, "${timestamp}_$name.bak")
+                runCatching { source.copyTo(target, overwrite = true) }
             }
         }
     }
